@@ -29,7 +29,13 @@ struct ARViewContainer: UIViewRepresentable {
         return arView
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {}
+    func updateUIView(_ uiView: ARView, context: Context) {
+        // ★ 초기화(RESET) 감지 → AR 마커 전부 제거
+        if context.coordinator.lastResetToken != manager.resetToken {
+            context.coordinator.lastResetToken = manager.resetToken
+            context.coordinator.clearAll()
+        }
+    }
     func makeCoordinator() -> Coordinator { Coordinator(manager: manager) }
 
     // MARK: - Coordinator
@@ -44,6 +50,7 @@ struct ARViewContainer: UIViewRepresentable {
         private var distEntities: [Int: ModelEntity] = [:]
         private var labelAnchors: [AnchorEntity] = []
         private var hasRendered = false
+        var lastResetToken = 0   // ★ 초기화 감지용
 
         init(manager: MeasurementManager) { self.manager = manager }
 
@@ -53,9 +60,10 @@ struct ARViewContainer: UIViewRepresentable {
             guard let arView else { return }
             guard manager.tapStep.rawValue <= 3 else { return }
 
-            let loc = gesture.location(in: arView)
-            let hits = arView.raycast(from: loc, allowing: .existingPlaneGeometry, alignment: .horizontal)
-            let hit = hits.first ?? arView.raycast(from: loc, allowing: .estimatedPlane, alignment: .horizontal).first
+            // ★ 탭 위치가 아닌 "화면 정중앙(조준선)"에서 측정 → 정확도 향상
+            let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
+            let hits = arView.raycast(from: center, allowing: .existingPlaneGeometry, alignment: .horizontal)
+            let hit = hits.first ?? arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal).first
             guard let h = hit else { return }
 
             let pos = SIMD3<Float>(h.worldTransform.columns.3.x,
@@ -335,6 +343,23 @@ struct ARViewContainer: UIViewRepresentable {
                     la.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
                 }
             }
+        }
+
+        // MARK: - ★ 초기화: 모든 AR 마커 제거
+
+        func clearAll() {
+            guard let arView else { return }
+            // 모든 앵커 제거
+            for a in allAnchors { arView.scene.removeAnchor(a) }
+            for (_, a) in pointAnchors { arView.scene.removeAnchor(a) }
+            // 딕셔너리/배열 비우기
+            allAnchors.removeAll()
+            pointAnchors.removeAll()
+            markerEntities.removeAll()
+            numberEntities.removeAll()
+            distEntities.removeAll()
+            labelAnchors.removeAll()
+            hasRendered = false
         }
     }
 }
