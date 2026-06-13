@@ -96,9 +96,10 @@ class MeasurementManager: ObservableObject {
     @Published var measuredDepth: Float = 0
     @Published var roomRect: RoomRect?
 
-    // ★ 보정 계수 (AR 과대측정 교정). 실제/AR 비율. 기본 0.91 (약 10% 축소)
-    // 사용자가 INFO 화면에서 0.80~1.05 범위로 미세조정 가능
-    @Published var calibration: Float = 0.91
+    // ★ 가로/세로 보정 계수 (실제/AR 비율). AR 오차가 가로·세로 다를 수 있어 분리
+    // 사용자가 INFO 화면에서 줄자 측정값으로 미세조정
+    @Published var calibrationW: Float = 0.96   // 가로 보정
+    @Published var calibrationD: Float = 1.00   // 세로 보정
 
     var spacing: Float { floorArea < 14.0 ? 0.5 : 0.75 }
     let checkRadius: Float = 0.4
@@ -128,7 +129,7 @@ class MeasurementManager: ObservableObject {
         case .widthEnd:
             widthEndPoint = position
             // 표시는 보정된 실제 거리
-            measuredWidth = hDist(from: originPoint!, to: position) * calibration
+            measuredWidth = hDist(from: originPoint!, to: position) * calibrationW
             tapStep = .depthEnd
             statusMessage = String(format: "가로 %.2fm ✓ — 세로 끝에 맞추고 탭 ↓", measuredWidth)
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
@@ -151,7 +152,8 @@ class MeasurementManager: ObservableObject {
 
     private func buildAndPlace(depthTap: SIMD3<Float>) {
         guard let o = originPoint, let we = widthEndPoint else { return }
-        let cal: Float = calibration
+        let calW: Float = calibrationW
+        let calD: Float = calibrationD
 
         // 가로 방향 (XZ 평면) = 기준점 → 가로끝 실제 방향
         let wDir: SIMD3<Float> = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
@@ -169,8 +171,8 @@ class MeasurementManager: ObservableObject {
         let arDepth: Float = abs(proj)
 
         // 보정된 실제 거리 (표시/면적/간격 계산용)
-        measuredWidth = arWidth * cal
-        measuredDepth = arDepth * cal
+        measuredWidth = arWidth * calW
+        measuredDepth = arDepth * calD
 
         let floorY: Float = (o.y + we.y + depthTap.y) / 3
         let origin: SIMD3<Float> = SIMD3<Float>(o.x, floorY, o.z)
@@ -200,8 +202,8 @@ class MeasurementManager: ObservableObject {
         let swReal: Float = min(s, measuredWidth / 3)   // 물리적 간격(m)
         let sdReal: Float = min(s, measuredDepth / 3)
         // AR 공간 오프셋 = 물리거리 / 보정계수 (포인트를 실제 위치에 배치)
-        let swAR: Float = swReal / cal
-        let sdAR: Float = sdReal / cal
+        let swAR: Float = swReal / calW
+        let sdAR: Float = sdReal / calD
 
         let wNear: SIMD3<Float> = wDir * swAR
         let wFar: SIMD3<Float> = wDir * (arWidth - swAR)
