@@ -38,10 +38,13 @@ struct RoomRect {
     let floorY: Float
     var area: Float { width * depth }
     var corners: [SIMD3<Float>] {
-        [origin,
-         origin + widthDir * width,
-         origin + widthDir * width + depthDir * depth,
-         origin + depthDir * depth]
+        let w: SIMD3<Float> = widthDir * width
+        let d: SIMD3<Float> = depthDir * depth
+        let c0: SIMD3<Float> = origin
+        let c1: SIMD3<Float> = origin + w
+        let c2: SIMD3<Float> = origin + w + d
+        let c3: SIMD3<Float> = origin + d
+        return [c0, c1, c2, c3]
     }
 }
 
@@ -144,20 +147,20 @@ class MeasurementManager: ObservableObject {
         guard let o = originPoint, let we = widthEndPoint else { return }
 
         // 가로 방향 (XZ 평면)
-        let wDir = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
+        let wDir: SIMD3<Float> = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
         // 세로 방향 = 가로에 수직
-        let dDir = SIMD3<Float>(-wDir.z, 0, wDir.x)
+        let dDir: SIMD3<Float> = SIMD3<Float>(-wDir.z, 0, wDir.x)
 
         // 세로 길이 = 탭 위치를 세로축에 투영
-        let tapVec = SIMD3<Float>(depthTap.x - o.x, 0, depthTap.z - o.z)
+        let tapVec: SIMD3<Float> = SIMD3<Float>(depthTap.x - o.x, 0, depthTap.z - o.z)
         measuredDepth = abs(simd_dot(tapVec, dDir))
 
         // 세로 방향 부호 (탭이 어느 쪽인지)
-        let depthSign = simd_dot(tapVec, dDir)
-        let finalDDir = depthSign >= 0 ? dDir : -dDir
+        let depthSign: Float = simd_dot(tapVec, dDir)
+        let finalDDir: SIMD3<Float> = depthSign >= 0 ? dDir : -dDir
 
-        let floorY = (o.y + we.y + depthTap.y) / 3
-        let origin = SIMD3<Float>(o.x, floorY, o.z)
+        let floorY: Float = (o.y + we.y + depthTap.y) / 3
+        let origin: SIMD3<Float> = SIMD3<Float>(o.x, floorY, o.z)
 
         let rect = RoomRect(origin: origin, widthDir: wDir, depthDir: finalDDir,
                             width: measuredWidth, depth: measuredDepth, floorY: floorY)
@@ -181,17 +184,23 @@ class MeasurementManager: ObservableObject {
         //   │                │
         //   5(좌하) ─────── 4(우하)
         //
-        let s = spacing
-        let sw = min(s, measuredWidth / 3)   // 가로 방향 간격
-        let sd = min(s, measuredDepth / 3)   // 세로 방향 간격
+        let s: Float = spacing
+        let sw: Float = min(s, measuredWidth / 3)   // 가로 방향 간격
+        let sd: Float = min(s, measuredDepth / 3)   // 세로 방향 간격
 
-        let p1 = origin + wDir * (measuredWidth - sw) + finalDDir * sd                      // 1: 우상
-        let p2 = origin + wDir * sw + finalDDir * sd                                        // 2: 좌상
-        let p4 = origin + wDir * (measuredWidth - sw) + finalDDir * (measuredDepth - sd)    // 4: 우하
-        let p5 = origin + wDir * sw + finalDDir * (measuredDepth - sd)                      // 5: 좌하
+        // 단계별 계산 (컴파일러 타입 추론 부담 감소)
+        let wNear: SIMD3<Float> = wDir * sw
+        let wFar: SIMD3<Float> = wDir * (measuredWidth - sw)
+        let dNear: SIMD3<Float> = finalDDir * sd
+        let dFar: SIMD3<Float> = finalDDir * (measuredDepth - sd)
+
+        let p1: SIMD3<Float> = origin + wFar + dNear   // 1: 우상
+        let p2: SIMD3<Float> = origin + wNear + dNear  // 2: 좌상
+        let p4: SIMD3<Float> = origin + wFar + dFar    // 4: 우하
+        let p5: SIMD3<Float> = origin + wNear + dFar   // 5: 좌하
 
         // ★ 3번 중앙 = 1→5 대각선의 중간점 (= 2→4 대각선의 중간점)
-        let p3 = (p1 + p5) / 2
+        let p3: SIMD3<Float> = (p1 + p5) / 2
 
         points = [
             MeasurementPoint(id: 1, position: p1),
