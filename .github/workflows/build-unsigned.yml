@@ -1,0 +1,46 @@
+name: Build Unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Xcode 16 선택
+        run: sudo xcode-select -switch /Applications/Xcode_16.app
+
+      - name: 앱 빌드 (서명 없음)
+        run: |
+          xcodebuild -project AMA.xcodeproj \
+            -scheme AMA \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            clean build
+
+      - name: IPA 패키징
+        run: |
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -name "*.app" -maxdepth 1 | head -1)
+          echo "앱 경로: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r AMA-unsigned.ipa Payload
+          ls -lh AMA-unsigned.ipa
+
+      - name: IPA 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: AMA-unsigned-ipa
+          path: AMA-unsigned.ipa
+          retention-days: 30
