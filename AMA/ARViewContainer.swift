@@ -152,13 +152,12 @@ struct ARViewContainer: UIViewRepresentable {
             }
 
             // 2) 가로/세로 치수 라벨 (보정된 실제 거리 표시)
-            let cal = manager.calibration
             let topMid = (corners[0] + corners[1]) / 2
             makeLabelBG(at: SIMD3(topMid.x, y + 0.03, topMid.z),
-                        text: String(format: "가로 %.2fm", rect.width * cal), color: .systemOrange)
+                        text: String(format: "가로 %.2fm", rect.width * manager.calibrationW), color: .systemOrange)
             let leftMid = (corners[0] + corners[3]) / 2
             makeLabelBG(at: SIMD3(leftMid.x, y + 0.03, leftMid.z),
-                        text: String(format: "세로 %.2fm", rect.depth * cal), color: .systemCyan)
+                        text: String(format: "세로 %.2fm", rect.depth * manager.calibrationD), color: .systemCyan)
 
             // 3) 면적 (중앙) — 보정된 면적
             let center = manager.points[2].position
@@ -310,10 +309,11 @@ struct ARViewContainer: UIViewRepresentable {
             guard let aim = centerRaycast() else { return }
 
             // 첫 점(또는 기준점)에서 현재 조준선까지 흰색 라인 + 거리
-            drawLiveLine(from: o, to: aim, color: .white)
+            let calFactor = step == .depthEnd ? manager.calibrationD : manager.calibrationW
+            drawLiveLine(from: o, to: aim, color: .white, cal: calFactor)
         }
 
-        private func drawLiveLine(from s: SIMD3<Float>, to e: SIMD3<Float>, color: UIColor) {
+        private func drawLiveLine(from s: SIMD3<Float>, to e: SIMD3<Float>, color: UIColor, cal: Float) {
             guard let arView else { return }
             let y = (s.y + e.y) / 2 + 0.004
             let a3 = SIMD3<Float>(s.x, y, s.z)
@@ -332,7 +332,7 @@ struct ARViewContainer: UIViewRepresentable {
             anchor.addChild(line)
 
             // 거리 라벨
-            let calLen = len * manager.calibration
+            let calLen = len * cal
             let distText = calLen >= 1.0 ? String(format: "%.2fm", calLen) : String(format: "%.0fcm", calLen*100)
             let bg = ModelEntity(
                 mesh: MeshResource.generatePlane(width: 0.16, depth: 0.05, cornerRadius: 0.015),
