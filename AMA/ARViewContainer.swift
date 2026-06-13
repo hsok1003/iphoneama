@@ -215,60 +215,59 @@ struct ARViewContainer: UIViewRepresentable {
             for p in manager.points {
                 let a = AnchorEntity(world: p.position)
                 let isCenter = p.id == 3
-                // 중앙=빨강, 코너=주황 (UnlitMaterial로 항상 선명)
                 let base: UIColor = isCenter ? .systemRed : .systemOrange
 
-                // 바닥 원형 마커 (납작) — 위치 표시
-                let disc = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.14, depth: 0.14, cornerRadius: 0.07),
+                // ★ 바닥 과녁 — 정확한 지점 표시 (체크하기 쉽게)
+                // 바깥 큰 원 (반투명)
+                let outerRing = ModelEntity(
+                    mesh: MeshResource.generatePlane(width: 0.30, depth: 0.30, cornerRadius: 0.15),
+                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.25))])
+                outerRing.position.y = 0.002
+                a.addChild(outerRing)
+
+                // 중간 원
+                let midRing = ModelEntity(
+                    mesh: MeshResource.generatePlane(width: 0.16, depth: 0.16, cornerRadius: 0.08),
                     materials: [UnlitMaterial(color: base.withAlphaComponent(0.55))])
-                disc.position.y = 0.003
-                a.addChild(disc)
+                midRing.position.y = 0.003
+                a.addChild(midRing)
 
-                // ★ 세로 기둥 (바닥에서 위로) — 멀리서도 보임
-                let pole = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.012, height: 0.25, depth: 0.012),
+                // ★ 십자선 (가로) — 정중앙 표시
+                let crossH = ModelEntity(
+                    mesh: MeshResource.generateBox(width: 0.28, height: 0.004, depth: 0.012),
+                    materials: [UnlitMaterial(color: .white)])
+                crossH.position.y = 0.004
+                a.addChild(crossH)
+
+                // ★ 십자선 (세로)
+                let crossV = ModelEntity(
+                    mesh: MeshResource.generateBox(width: 0.012, height: 0.004, depth: 0.28),
+                    materials: [UnlitMaterial(color: .white)])
+                crossV.position.y = 0.004
+                a.addChild(crossV)
+
+                // 정중앙 작은 점 (마킹 지점)
+                let centerDot = ModelEntity(
+                    mesh: MeshResource.generatePlane(width: 0.04, depth: 0.04, cornerRadius: 0.02),
                     materials: [UnlitMaterial(color: base)])
-                pole.position.y = 0.125
-                a.addChild(pole)
+                centerDot.position.y = 0.005
+                a.addChild(centerDot)
+                markerEntities[p.id] = centerDot
 
-                // ★ 기둥 위 구슬 (밝은 색)
-                let ball = ModelEntity(
-                    mesh: MeshResource.generateSphere(radius: 0.035),
-                    materials: [UnlitMaterial(color: base)])
-                ball.position.y = 0.25
-                a.addChild(ball)
-                markerEntities[p.id] = ball
-
-                // 번호 (구슬 위, 색 배경)
-                let numBg = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.10, depth: 0.10, cornerRadius: 0.05),
-                    materials: [UnlitMaterial(color: base)])
-                numBg.position = SIMD3(0, 0.34, 0)
-                a.addChild(numBg)
-
+                // 번호 — 바닥에 평평하게 (위에서 내려다볼 때 읽기 쉽게)
                 let num = ModelEntity(
                     mesh: MeshResource.generateText(
                         "\(p.id)", extrusionDepth: 0.005,
-                        font: .systemFont(ofSize: 0.07, weight: .bold),
-                        containerFrame: .zero, alignment: .center,
-                        lineBreakMode: .byWordWrapping),
-                    materials: [UnlitMaterial(color: .white)])
-                num.position = SIMD3(-0.02, 0.31, 0.01)
-                a.addChild(num)
-                numberEntities[p.id] = num
-
-                // 라벨 (좌상/우상 등)
-                let lbl = ModelEntity(
-                    mesh: MeshResource.generateText(
-                        p.label, extrusionDepth: 0.002,
-                        font: .systemFont(ofSize: 0.03, weight: .semibold),
+                        font: .systemFont(ofSize: 0.13, weight: .bold),
                         containerFrame: .zero, alignment: .center,
                         lineBreakMode: .byWordWrapping),
                     materials: [UnlitMaterial(color: base)])
-                lbl.position = SIMD3(-0.04, 0.42, 0)
-                a.addChild(lbl)
-                distEntities[p.id] = lbl
+                // 바닥에 눕히기 (-90° X축 회전) + 과녁 위쪽에 배치
+                num.orientation = simd_quatf(angle: -.pi / 2, axis: SIMD3(1, 0, 0))
+                num.position = SIMD3(-0.04, 0.006, -0.20)
+                a.addChild(num)
+                numberEntities[p.id] = num
+                distEntities[p.id] = num
 
                 arView.scene.addAnchor(a)
                 pointAnchors[p.id] = a
@@ -329,16 +328,7 @@ struct ARViewContainer: UIViewRepresentable {
                         : p.id == 3 ? .systemRed : .systemOrange
                     m.model?.materials = [UnlitMaterial(color: c)]
                 }
-                // 모든 라벨/번호가 카메라를 향하도록 (빌보드)
-                for p in self.manager.points {
-                    if let anchor = self.pointAnchors[p.id] {
-                        let dir = pos - anchor.position(relativeTo: nil)
-                        let ang = atan2(dir.x, dir.z)
-                        self.numberEntities[p.id]?.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
-                        self.distEntities[p.id]?.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
-                    }
-                }
-                // 치수 라벨들도 카메라를 향하도록
+                // 치수 라벨만 카메라를 향하도록 (포인트 번호는 바닥 고정)
                 for la in self.labelAnchors {
                     let dir = pos - la.position(relativeTo: nil)
                     let ang = atan2(dir.x, dir.z)
