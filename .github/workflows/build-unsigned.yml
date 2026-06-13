@@ -13,8 +13,12 @@ jobs:
       - name: 코드 체크아웃
         uses: actions/checkout@v4
 
-      - name: Xcode 16 선택
-        run: sudo xcode-select -switch /Applications/Xcode_16.app
+      - name: Xcode 버전 확인
+        run: |
+          echo "설치된 Xcode 목록:"
+          ls /Applications | grep Xcode
+          echo "현재 Xcode 버전:"
+          xcodebuild -version
 
       - name: 앱 빌드 (서명 없음)
         run: |
