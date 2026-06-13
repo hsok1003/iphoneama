@@ -86,19 +86,9 @@ struct ARViewContainer: UIViewRepresentable {
 
             let step = manager.tapStep
 
-            // 끝점 마커
+            // 끝점 마커 (작은 점만)
             let color: UIColor = step == .depthEnd ? .systemCyan : .systemOrange
             placeEndpoint(at: pos, color: color)
-
-            // 가로 끝점 → 측정 라인
-            if step == .widthEnd, let o = manager.originPoint {
-                drawRuler(from: o, to: pos, color: .systemOrange, label: "가로")
-            }
-
-            // 세로 끝점 → 측정 라인
-            if step == .depthEnd, let o = manager.originPoint {
-                drawRuler(from: o, to: pos, color: .systemCyan, label: "세로")
-            }
 
             manager.handleTap(position: pos)
 
@@ -140,59 +130,6 @@ struct ARViewContainer: UIViewRepresentable {
 
             arView.scene.addAnchor(a)
             allAnchors.append(a)
-        }
-
-        // MARK: - ★ 측정 라인 (깔끔한 스타일)
-
-        private func drawRuler(from a: SIMD3<Float>, to b: SIMD3<Float>,
-                               color: UIColor, label: String) {
-            guard let arView else { return }
-            let y = (a.y + b.y) / 2 + 0.004
-            let s = SIMD3<Float>(a.x, y, a.z)
-            let e = SIMD3<Float>(b.x, y, b.z)
-            let dist = simd_distance(SIMD2(a.x, a.z), SIMD2(b.x, b.z))
-            guard dist > 0.01 else { return }
-
-            let dir = simd_normalize(e - s)
-            let totalLen = simd_distance(s, e)
-            let mid = (s + e) / 2
-            let angle = atan2(-dir.z, dir.x)   // 박스 길이(+X)를 dir에 정렬
-            let perpAngle = angle + .pi / 2
-
-            // 메인 라인 (선명한 색)
-            addBoxUnlit(at: mid, w: totalLen, h: 0.003, d: 0.012,
-                        color: color, angle: angle)
-
-            // 양 끝 캡만 (눈금 틱 제거 → 깔끔)
-            for ep in [s, e] {
-                addBoxUnlit(at: ep, w: 0.06, h: 0.003, d: 0.012,
-                            color: color, angle: perpAngle)
-            }
-
-            // 거리 라벨 (검정 배경 + 흰 글씨)
-            let labelA = AnchorEntity(world: mid + SIMD3(0, 0.03, 0))
-            let bg = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.20, depth: 0.06, cornerRadius: 0.02),
-                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.8))])
-            bg.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
-            labelA.addChild(bg)
-
-            let calDist = dist * manager.calibration
-            let distText = calDist >= 1.0
-                ? String(format: "%.2fm", calDist)
-                : String(format: "%.0fcm", calDist * 100)
-            let txt = ModelEntity(
-                mesh: MeshResource.generateText(
-                    distText, extrusionDepth: 0.003,
-                    font: .systemFont(ofSize: 0.045, weight: .bold),
-                    containerFrame: .zero, alignment: .center,
-                    lineBreakMode: .byWordWrapping),
-                materials: [UnlitMaterial(color: .white)])
-            txt.position = SIMD3(-0.05, 0.005, 0)
-            labelA.addChild(txt)
-
-            arView.scene.addAnchor(labelA)
-            allAnchors.append(labelA)
         }
 
         // MARK: - 방 렌더링
