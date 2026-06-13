@@ -11,6 +11,9 @@ struct InfoView: View {
                     // 현재 상태
                     statusSection
 
+                    // 보정 설정
+                    calibrationSection
+
                     // 측정 기준
                     standardsSection
 
@@ -69,6 +72,56 @@ struct InfoView: View {
         }
     }
 
+    // MARK: - 보정 설정
+
+    private var calibrationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("거리 보정")
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("AR 측정이 실제보다 길거나 짧게 나올 때 조정하세요. 줄자로 잰 실제 거리와 앱 표시값을 비교해 맞춥니다.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+
+                HStack {
+                    Text("보정 계수")
+                        .font(.system(size: 14, weight: .medium))
+                    Spacer()
+                    Text(String(format: "%.2f", manager.calibration))
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundColor(.blue)
+                }
+
+                Slider(value: $manager.calibration, in: 0.80...1.05, step: 0.01)
+                    .tint(.blue)
+
+                HStack {
+                    Text("0.80 (더 짧게)")
+                    Spacer()
+                    Text("1.05 (더 길게)")
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+                Text("예: 실제 4.0m인데 앱이 4.4m로 나오면 → 4.0 ÷ 4.4 = 0.91로 설정")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+
+                Button {
+                    manager.calibration = 0.91
+                } label: {
+                    Text("기본값(0.91)으로 초기화")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.blue)
+                }
+            }
+            .padding(14)
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+        }
+    }
+
     // MARK: - 측정 기준
 
     private var standardsSection: some View {
@@ -100,14 +153,14 @@ struct InfoView: View {
             sectionTitle("사용 안내")
 
             VStack(alignment: .leading, spacing: 14) {
-                stepGuide(1, "기준점 + 가로 측정",
-                          "바닥의 기준 모서리를 탭하고, 가로 끝점을 탭하세요. 눈금자 라인으로 가로 길이가 표시됩니다.")
+                stepGuide(1, "가로 측정",
+                          "화면 중앙의 조준선을 가로 시작점에 맞추고 화면을 탭하세요. 이어서 조준선을 가로 끝점에 맞추고 탭하면 가로 길이가 측정됩니다.")
 
                 stepGuide(2, "세로 측정",
-                          "기준점에서 수직 방향의 세로 끝점을 탭하세요. 기준점은 공유되므로 다시 탭할 필요 없습니다.")
+                          "조준선을 세로 끝점에 맞추고 탭하세요. 가로 시작점에서 수직 방향으로 세로 길이가 측정됩니다. 어디를 탭하든 항상 화면 중앙 조준선 위치가 측정됩니다.")
 
                 stepGuide(3, "포인트 확인",
-                          "5개 포인트가 자동 배치됩니다. 간격은 가로/세로 각각 벽에서 정확히 0.75m(또는 0.5m)입니다. 중앙점은 2→5 대각선의 중간점입니다.")
+                          "5개 포인트가 자동 배치됩니다. 간격은 가로/세로 각각 벽에서 정확히 0.75m(또는 0.5m)입니다. 중앙점은 1→5 대각선의 중간점입니다.")
             }
             .padding(14)
             .background(Color(.systemBackground))
