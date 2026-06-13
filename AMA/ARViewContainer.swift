@@ -60,10 +60,16 @@ struct ARViewContainer: UIViewRepresentable {
             guard let arView else { return }
             guard manager.tapStep.rawValue <= 3 else { return }
 
-            // ★ 탭 위치가 아닌 "화면 정중앙(조준선)"에서 측정 → 정확도 향상
+            // ★ 탭 위치가 아닌 "화면 정중앙(조준선)"에서 측정
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-            let hits = arView.raycast(from: center, allowing: .existingPlaneGeometry, alignment: .horizontal)
-            let hit = hits.first ?? arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal).first
+            // 정확도 우선순위: 감지된 평면 메시 > 평면 무한확장 > 추정 평면
+            var hit = arView.raycast(from: center, allowing: .existingPlaneGeometry, alignment: .horizontal).first
+            if hit == nil {
+                hit = arView.raycast(from: center, allowing: .existingPlaneInfinite, alignment: .horizontal).first
+            }
+            if hit == nil {
+                hit = arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal).first
+            }
             guard let h = hit else { return }
 
             let pos = SIMD3<Float>(h.worldTransform.columns.3.x,
@@ -225,54 +231,39 @@ struct ARViewContainer: UIViewRepresentable {
                 let isCenter = p.id == 3
                 let base: UIColor = isCenter ? .systemRed : .systemOrange
 
-                // ★ 바닥 과녁 — 정확한 지점 표시 (체크하기 쉽게)
-                // 바깥 큰 원 (반투명)
-                let outerRing = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.30, depth: 0.30, cornerRadius: 0.15),
-                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.25))])
-                outerRing.position.y = 0.002
-                a.addChild(outerRing)
+                // ★ 작은 X자 (정확한 지점 표시) — 대각선 2개
+                let arm1 = ModelEntity(
+                    mesh: MeshResource.generateBox(width: 0.08, height: 0.003, depth: 0.008),
+                    materials: [UnlitMaterial(color: base)])
+                arm1.position.y = 0.004
+                arm1.orientation = simd_quatf(angle: .pi / 4, axis: SIMD3(0, 1, 0))
+                a.addChild(arm1)
 
-                // 중간 원
-                let midRing = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.16, depth: 0.16, cornerRadius: 0.08),
-                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.55))])
-                midRing.position.y = 0.003
-                a.addChild(midRing)
+                let arm2 = ModelEntity(
+                    mesh: MeshResource.generateBox(width: 0.08, height: 0.003, depth: 0.008),
+                    materials: [UnlitMaterial(color: base)])
+                arm2.position.y = 0.004
+                arm2.orientation = simd_quatf(angle: -.pi / 4, axis: SIMD3(0, 1, 0))
+                a.addChild(arm2)
 
-                // ★ 십자선 (가로) — 정중앙 표시
-                let crossH = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.28, height: 0.004, depth: 0.012),
-                    materials: [UnlitMaterial(color: .white)])
-                crossH.position.y = 0.004
-                a.addChild(crossH)
-
-                // ★ 십자선 (세로)
-                let crossV = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.012, height: 0.004, depth: 0.28),
-                    materials: [UnlitMaterial(color: .white)])
-                crossV.position.y = 0.004
-                a.addChild(crossV)
-
-                // 정중앙 작은 점 (마킹 지점)
+                // 정중앙 아주 작은 점 (마킹 지점)
                 let centerDot = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.04, depth: 0.04, cornerRadius: 0.02),
+                    mesh: MeshResource.generatePlane(width: 0.012, depth: 0.012, cornerRadius: 0.006),
                     materials: [UnlitMaterial(color: base)])
                 centerDot.position.y = 0.005
                 a.addChild(centerDot)
                 markerEntities[p.id] = centerDot
 
-                // 번호 — 바닥에 평평하게 (위에서 내려다볼 때 읽기 쉽게)
+                // 작은 번호 — 바닥에 평평하게 (X 옆에)
                 let num = ModelEntity(
                     mesh: MeshResource.generateText(
-                        "\(p.id)", extrusionDepth: 0.005,
-                        font: .systemFont(ofSize: 0.13, weight: .bold),
+                        "\(p.id)", extrusionDepth: 0.003,
+                        font: .systemFont(ofSize: 0.05, weight: .bold),
                         containerFrame: .zero, alignment: .center,
                         lineBreakMode: .byWordWrapping),
                     materials: [UnlitMaterial(color: base)])
-                // 바닥에 눕히기 (-90° X축 회전) + 과녁 위쪽에 배치
                 num.orientation = simd_quatf(angle: -.pi / 2, axis: SIMD3(1, 0, 0))
-                num.position = SIMD3(-0.04, 0.006, -0.20)
+                num.position = SIMD3(0.06, 0.006, 0.02)
                 a.addChild(num)
                 numberEntities[p.id] = num
                 distEntities[p.id] = num
