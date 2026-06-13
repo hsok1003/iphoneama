@@ -78,7 +78,7 @@ class MeasurementManager: ObservableObject {
     @Published var wallEdges: [WallEdge] = []
     @Published var floorArea: Float = 0
     @Published var roomDimensions: SIMD2<Float> = .zero
-    @Published var statusMessage: String = "조준선을 기준 모서리에 맞추고 탭"
+    @Published var statusMessage: String = "조준선을 가로 시작점에 맞추고 탭"
     @Published var cameraPosition: SIMD3<Float> = .zero
     @Published var elapsedTime: TimeInterval = 0
     @Published var startDate: Date = Date()
@@ -86,6 +86,7 @@ class MeasurementManager: ObservableObject {
     @Published var showResultSheet = false
     @Published var showInfoSheet = false
     @Published var checkedCount: Int = 0
+    @Published var resetToken: Int = 0   // ★ 초기화 감지용
 
     @Published var originPoint: SIMD3<Float>?
     @Published var widthEndPoint: SIMD3<Float>?
@@ -248,7 +249,7 @@ class MeasurementManager: ObservableObject {
         switch tapStep {
         case .widthEnd:
             originPoint = nil; tapStep = .origin
-            statusMessage = "조준선을 기준 모서리에 맞추고 탭"
+            statusMessage = "조준선을 가로 시작점에 맞추고 탭"
         case .depthEnd:
             widthEndPoint = nil; measuredWidth = 0; tapStep = .widthEnd
             statusMessage = "조준선을 가로 끝에 맞추고 탭 →"
@@ -267,11 +268,12 @@ class MeasurementManager: ObservableObject {
 
     func reset() {
         stopTimer(); tapStep = .origin
-        statusMessage = "조준선을 기준 모서리에 맞추고 탭"
+        statusMessage = "조준선을 가로 시작점에 맞추고 탭"
         points = []; wallEdges = []; floorArea = 0; roomDimensions = .zero
         elapsedTime = 0; currentResult = nil; showResultSheet = false
         checkedCount = 0; roomRect = nil
         originPoint = nil; widthEndPoint = nil; depthEndPoint = nil
         measuredWidth = 0; measuredDepth = 0
+        resetToken += 1   // ★ AR 뷰가 초기화를 감지하도록 토큰 증가
     }
 }
