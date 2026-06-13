@@ -156,15 +156,17 @@ class MeasurementManager: ObservableObject {
         // 가로 방향 (XZ 평면) = 기준점 → 가로끝 실제 방향
         let wDir: SIMD3<Float> = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
 
-        // 세로 방향 = 기준점 → 세로끝 실제 방향
+        // ★ 세로 방향 = 가로에 직각(수직)으로 강제 (직사각형 방 가정 → 포인트 안 틀어짐)
         let tapVec: SIMD3<Float> = SIMD3<Float>(depthTap.x - o.x, 0, depthTap.z - o.z)
-        let finalDDir: SIMD3<Float> = simd_length(tapVec) > 0.001
-            ? simd_normalize(tapVec)
-            : SIMD3<Float>(-wDir.z, 0, wDir.x)
+        let perpDir: SIMD3<Float> = SIMD3<Float>(-wDir.z, 0, wDir.x)
+        // 탭이 어느 쪽인지(부호) 판단
+        let proj: Float = simd_dot(tapVec, perpDir)
+        let finalDDir: SIMD3<Float> = proj >= 0 ? perpDir : -perpDir
 
         // AR 공간의 원시 거리
         let arWidth: Float = hDist(from: o, to: we)
-        let arDepth: Float = simd_length(tapVec)
+        // ★ 세로 길이 = 가로에 수직인 방향으로의 거리 (직각 투영)
+        let arDepth: Float = abs(proj)
 
         // 보정된 실제 거리 (표시/면적/간격 계산용)
         measuredWidth = arWidth * cal
