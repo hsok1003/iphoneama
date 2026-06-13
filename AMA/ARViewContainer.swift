@@ -156,7 +156,7 @@ struct ARViewContainer: UIViewRepresentable {
             let dir = simd_normalize(e - s)
             let totalLen = simd_distance(s, e)
             let mid = (s + e) / 2
-            let angle = atan2(dir.x, dir.z)
+            let angle = atan2(-dir.z, dir.x)   // 박스 길이(+X)를 dir에 정렬
             let perpAngle = angle + .pi / 2
 
             // 메인 라인 (선명한 색)
@@ -210,7 +210,7 @@ struct ARViewContainer: UIViewRepresentable {
                 let d = simd_normalize(e - s)
                 let len = simd_distance(s, e)
                 addBoxUnlit(at: (s + e) / 2, w: len, h: 0.004, d: 0.015,
-                            color: purple, angle: atan2(d.x, d.z))
+                            color: purple, angle: atan2(-d.z, d.x))
             }
 
             // 2) 가로/세로 치수 라벨 (벽 중앙에)
@@ -383,7 +383,7 @@ struct ARViewContainer: UIViewRepresentable {
             guard len > 0.02 else { return }
             let dir = simd_normalize(b3 - a3)
             let mid = (a3 + b3) / 2
-            let angle = atan2(dir.x, dir.z)
+            let angle = atan2(-dir.z, dir.x)   // 박스 길이(+X)를 dir에 정렬
 
             let anchor = AnchorEntity(world: mid)
             let line = ModelEntity(
