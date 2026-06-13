@@ -193,16 +193,24 @@ struct ARViewContainer: UIViewRepresentable {
             }
 
             // 안쪽 포인트 영역 (녹색)
-            let sp = manager.spacing
-            let sw = min(sp, rect.width / 3)
-            let sd = min(sp, rect.depth / 3)
+            let sp: Float = manager.spacing
+            let sw: Float = min(sp, rect.width / 3)
+            let sd: Float = min(sp, rect.depth / 3)
 
-            let ip = [
-                rect.origin + rect.widthDir * sw + rect.depthDir * sd,
-                rect.origin + rect.widthDir * (rect.width - sw) + rect.depthDir * sd,
-                rect.origin + rect.widthDir * (rect.width - sw) + rect.depthDir * (rect.depth - sd),
-                rect.origin + rect.widthDir * sw + rect.depthDir * (rect.depth - sd),
-            ]
+            // 컴파일러 타입 추론 부담을 줄이기 위해 단계별로 계산
+            let wDir: SIMD3<Float> = rect.widthDir
+            let dDir: SIMD3<Float> = rect.depthDir
+            let org: SIMD3<Float> = rect.origin
+            let wNear: SIMD3<Float> = wDir * sw
+            let wFar: SIMD3<Float> = wDir * (rect.width - sw)
+            let dNear: SIMD3<Float> = dDir * sd
+            let dFar: SIMD3<Float> = dDir * (rect.depth - sd)
+
+            let ip0: SIMD3<Float> = org + wNear + dNear
+            let ip1: SIMD3<Float> = org + wFar + dNear
+            let ip2: SIMD3<Float> = org + wFar + dFar
+            let ip3: SIMD3<Float> = org + wNear + dFar
+            let ip: [SIMD3<Float>] = [ip0, ip1, ip2, ip3]
             for i in 0..<4 {
                 let s = SIMD3<Float>(ip[i].x, y + 0.006, ip[i].z)
                 let e = SIMD3<Float>(ip[(i+1)%4].x, y + 0.006, ip[(i+1)%4].z)
@@ -214,14 +222,17 @@ struct ARViewContainer: UIViewRepresentable {
 
             // ★ 간격 표시: 벽→포인트 거리 (가로/세로 각각)
             // 가로 간격 (좌벽 → 포인트2)
-            let wSpacingStart = SIMD3<Float>(corners[0].x, y + 0.007, corners[0].z) + rect.depthDir * sd
-            let wSpacingEnd = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
+            let cornerBase: SIMD3<Float> = SIMD3<Float>(corners[0].x, y + 0.007, corners[0].z)
+            let depthOffset: SIMD3<Float> = rect.depthDir * sd
+            let widthOffset: SIMD3<Float> = rect.widthDir * sw
+            let wSpacingStart: SIMD3<Float> = cornerBase + depthOffset
+            let wSpacingEnd: SIMD3<Float> = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
             drawSpacingLine(from: wSpacingStart, to: wSpacingEnd,
                             text: String(format: "가로 %.2fm", sw), color: .systemGreen)
 
             // 세로 간격 (상벽 → 포인트2)
-            let dSpacingStart = SIMD3<Float>(corners[0].x, y + 0.007, corners[0].z) + rect.widthDir * sw
-            let dSpacingEnd = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
+            let dSpacingStart: SIMD3<Float> = cornerBase + widthOffset
+            let dSpacingEnd: SIMD3<Float> = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
             drawSpacingLine(from: dSpacingStart, to: dSpacingEnd,
                             text: String(format: "세로 %.2fm", sd), color: .systemGreen)
 
@@ -250,7 +261,6 @@ struct ARViewContainer: UIViewRepresentable {
 
         private func drawSpacingLine(from a: SIMD3<Float>, to b: SIMD3<Float>,
                                      text: String, color: UIColor) {
-            guard let arView else { return }
             let dir = simd_normalize(b - a)
             let len = simd_distance(a, b)
             let mid = (a + b) / 2
