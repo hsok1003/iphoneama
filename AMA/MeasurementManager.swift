@@ -96,6 +96,10 @@ class MeasurementManager: ObservableObject {
     @Published var measuredDepth: Float = 0
     @Published var roomRect: RoomRect?
 
+    // ★ 보정 계수 (AR 과대측정 교정). 실제/AR 비율. 기본 0.91 (약 10% 축소)
+    // 사용자가 INFO 화면에서 0.80~1.05 범위로 미세조정 가능
+    @Published var calibration: Float = 0.91
+
     var spacing: Float { floorArea < 14.0 ? 0.5 : 0.75 }
     let checkRadius: Float = 0.4
     private var timer: Timer?
@@ -123,7 +127,8 @@ class MeasurementManager: ObservableObject {
 
         case .widthEnd:
             widthEndPoint = position
-            measuredWidth = hDist(from: originPoint!, to: position)
+            // 표시는 보정된 실제 거리
+            measuredWidth = hDist(from: originPoint!, to: position) * calibration
             tapStep = .depthEnd
             statusMessage = String(format: "가로 %.2fm ✓ — 세로 끝에 맞추고 탭 ↓", measuredWidth)
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
@@ -146,19 +151,24 @@ class MeasurementManager: ObservableObject {
 
     private func buildAndPlace(depthTap: SIMD3<Float>) {
         guard let o = originPoint, let we = widthEndPoint else { return }
+        let cal: Float = calibration
 
-        // 가로 방향 (XZ 평면)
+        // 가로 방향 (XZ 평면) = 기준점 → 가로끝 실제 방향
         let wDir: SIMD3<Float> = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
-        // 세로 방향 = 가로에 수직
-        let dDir: SIMD3<Float> = SIMD3<Float>(-wDir.z, 0, wDir.x)
 
-        // 세로 길이 = 기준점에서 탭까지의 실제 수평 거리 (투영하지 않음 → 오차 없음)
+        // 세로 방향 = 기준점 → 세로끝 실제 방향
         let tapVec: SIMD3<Float> = SIMD3<Float>(depthTap.x - o.x, 0, depthTap.z - o.z)
-        measuredDepth = simd_length(tapVec)
+        let finalDDir: SIMD3<Float> = simd_length(tapVec) > 0.001
+            ? simd_normalize(tapVec)
+            : SIMD3<Float>(-wDir.z, 0, wDir.x)
 
-        // 세로 방향 부호만 투영으로 판단 (탭이 어느 쪽인지)
-        let depthSign: Float = simd_dot(tapVec, dDir)
-        let finalDDir: SIMD3<Float> = depthSign >= 0 ? dDir : -dDir
+        // AR 공간의 원시 거리
+        let arWidth: Float = hDist(from: o, to: we)
+        let arDepth: Float = simd_length(tapVec)
+
+        // 보정된 실제 거리 (표시/면적/간격 계산용)
+        measuredWidth = arWidth * cal
+        measuredDepth = arDepth * cal
 
         let floorY: Float = (o.y + we.y + depthTap.y) / 3
         let origin: SIMD3<Float> = SIMD3<Float>(o.x, floorY, o.z)
@@ -166,7 +176,8 @@ class MeasurementManager: ObservableObject {
         let rect = RoomRect(origin: origin, widthDir: wDir, depthDir: finalDDir,
                             width: measuredWidth, depth: measuredDepth, floorY: floorY)
         roomRect = rect
-        floorArea = rect.area
+        let crossY: Float = wDir.x * finalDDir.z - wDir.z * finalDDir.x
+        floorArea = measuredWidth * measuredDepth * abs(crossY)
         roomDimensions = SIMD2(measuredWidth, measuredDepth)
 
         let c = rect.corners
@@ -177,31 +188,27 @@ class MeasurementManager: ObservableObject {
             WallEdge(start: c[3], end: c[0]),
         ]
 
-        // ★ 포인트 배치 (역Z 패턴): 가로/세로 각각 벽에서 정확히 간격만큼 안쪽
-        //
-        //   2(좌상) ─────── 1(우상)
-        //   │                │
-        //   │     3(중앙)     │
-        //   │                │
-        //   5(좌하) ─────── 4(우하)
-        //
+        // ★ 포인트 배치 (역Z 패턴)
+        //   2(좌상) ─── 1(우상)
+        //   │    3(중앙)    │
+        //   5(좌하) ─── 4(우하)
         let s: Float = spacing
-        let sw: Float = min(s, measuredWidth / 3)   // 가로 방향 간격
-        let sd: Float = min(s, measuredDepth / 3)   // 세로 방향 간격
+        let swReal: Float = min(s, measuredWidth / 3)   // 물리적 간격(m)
+        let sdReal: Float = min(s, measuredDepth / 3)
+        // AR 공간 오프셋 = 물리거리 / 보정계수 (포인트를 실제 위치에 배치)
+        let swAR: Float = swReal / cal
+        let sdAR: Float = sdReal / cal
 
-        // 단계별 계산 (컴파일러 타입 추론 부담 감소)
-        let wNear: SIMD3<Float> = wDir * sw
-        let wFar: SIMD3<Float> = wDir * (measuredWidth - sw)
-        let dNear: SIMD3<Float> = finalDDir * sd
-        let dFar: SIMD3<Float> = finalDDir * (measuredDepth - sd)
+        let wNear: SIMD3<Float> = wDir * swAR
+        let wFar: SIMD3<Float> = wDir * (arWidth - swAR)
+        let dNear: SIMD3<Float> = finalDDir * sdAR
+        let dFar: SIMD3<Float> = finalDDir * (arDepth - sdAR)
 
         let p1: SIMD3<Float> = origin + wFar + dNear   // 1: 우상
         let p2: SIMD3<Float> = origin + wNear + dNear  // 2: 좌상
         let p4: SIMD3<Float> = origin + wFar + dFar    // 4: 우하
         let p5: SIMD3<Float> = origin + wNear + dFar   // 5: 좌하
-
-        // ★ 3번 중앙 = 1→5 대각선의 중간점 (= 2→4 대각선의 중간점)
-        let p3: SIMD3<Float> = (p1 + p5) / 2
+        let p3: SIMD3<Float> = (p1 + p5) / 2           // 3: 중앙
 
         points = [
             MeasurementPoint(id: 1, position: p1),
@@ -212,7 +219,7 @@ class MeasurementManager: ObservableObject {
         ]
 
         statusMessage = String(format: "%.2f × %.2fm = %.1fm² (간격 %.2fm)",
-                               measuredWidth, measuredDepth, rect.area, s)
+                               measuredWidth, measuredDepth, floorArea, s)
         tapStep = .pointsReady
         startTimer()
     }
