@@ -151,11 +151,11 @@ class MeasurementManager: ObservableObject {
         // 세로 방향 = 가로에 수직
         let dDir: SIMD3<Float> = SIMD3<Float>(-wDir.z, 0, wDir.x)
 
-        // 세로 길이 = 탭 위치를 세로축에 투영
+        // 세로 길이 = 기준점에서 탭까지의 실제 수평 거리 (투영하지 않음 → 오차 없음)
         let tapVec: SIMD3<Float> = SIMD3<Float>(depthTap.x - o.x, 0, depthTap.z - o.z)
-        measuredDepth = abs(simd_dot(tapVec, dDir))
+        measuredDepth = simd_length(tapVec)
 
-        // 세로 방향 부호 (탭이 어느 쪽인지)
+        // 세로 방향 부호만 투영으로 판단 (탭이 어느 쪽인지)
         let depthSign: Float = simd_dot(tapVec, dDir)
         let finalDDir: SIMD3<Float> = depthSign >= 0 ? dDir : -dDir
 
