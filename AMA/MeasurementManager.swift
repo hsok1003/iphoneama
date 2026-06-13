@@ -78,7 +78,7 @@ class MeasurementManager: ObservableObject {
     @Published var wallEdges: [WallEdge] = []
     @Published var floorArea: Float = 0
     @Published var roomDimensions: SIMD2<Float> = .zero
-    @Published var statusMessage: String = "기준 모서리를 탭하세요"
+    @Published var statusMessage: String = "조준선을 기준 모서리에 맞추고 탭"
     @Published var cameraPosition: SIMD3<Float> = .zero
     @Published var elapsedTime: TimeInterval = 0
     @Published var startDate: Date = Date()
@@ -117,14 +117,14 @@ class MeasurementManager: ObservableObject {
         case .origin:
             originPoint = position
             tapStep = .widthEnd
-            statusMessage = "가로 끝점을 탭하세요 →"
+            statusMessage = "조준선을 가로 끝에 맞추고 탭 →"
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 
         case .widthEnd:
             widthEndPoint = position
             measuredWidth = hDist(from: originPoint!, to: position)
             tapStep = .depthEnd
-            statusMessage = String(format: "가로 %.2fm ✓ — 세로 끝점을 탭하세요 ↓", measuredWidth)
+            statusMessage = String(format: "가로 %.2fm ✓ — 세로 끝에 맞추고 탭 ↓", measuredWidth)
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 
         case .depthEnd:
@@ -248,10 +248,10 @@ class MeasurementManager: ObservableObject {
         switch tapStep {
         case .widthEnd:
             originPoint = nil; tapStep = .origin
-            statusMessage = "기준 모서리를 탭하세요"
+            statusMessage = "조준선을 기준 모서리에 맞추고 탭"
         case .depthEnd:
             widthEndPoint = nil; measuredWidth = 0; tapStep = .widthEnd
-            statusMessage = "가로 끝점을 탭하세요 →"
+            statusMessage = "조준선을 가로 끝에 맞추고 탭 →"
         default: break
         }
     }
@@ -267,7 +267,7 @@ class MeasurementManager: ObservableObject {
 
     func reset() {
         stopTimer(); tapStep = .origin
-        statusMessage = "기준 모서리를 탭하세요"
+        statusMessage = "조준선을 기준 모서리에 맞추고 탭"
         points = []; wallEdges = []; floorArea = 0; roomDimensions = .zero
         elapsedTime = 0; currentResult = nil; showResultSheet = false
         checkedCount = 0; roomRect = nil
