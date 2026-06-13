@@ -1,341 +1,273 @@
 import SwiftUI
-import ARKit
-import RealityKit
 
-struct ARViewContainer: UIViewRepresentable {
-    @ObservedObject var manager: MeasurementManager
+struct ContentView: View {
+    @StateObject private var manager = MeasurementManager()
 
-    func makeUIView(context: Context) -> ARView {
-        let arView = ARView(frame: .zero)
-        arView.automaticallyConfigureSession = false
+    var body: some View {
+        ZStack {
+            ARViewContainer(manager: manager)
+                .ignoresSafeArea()
 
-        let config = ARWorldTrackingConfiguration()
-        config.planeDetection = [.horizontal]
-        config.environmentTexturing = .automatic
-        arView.session.run(config)
-        arView.session.delegate = context.coordinator
+            // ★ 화면 중앙 조준선 (에임) — 측정 단계에서만 표시
+            if manager.tapStep.rawValue <= 3 {
+                aimReticle
+            }
 
-        let coaching = ARCoachingOverlayView()
-        coaching.session = arView.session
-        coaching.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        coaching.goal = .horizontalPlane
-        coaching.activatesAutomatically = true
-        arView.addSubview(coaching)
+            VStack(spacing: 0) { topBar; Spacer(); bottomBar }
 
-        let tap = UITapGestureRecognizer(target: context.coordinator,
-                                         action: #selector(Coordinator.handleTap(_:)))
-        arView.addGestureRecognizer(tap)
-        context.coordinator.arView = arView
-        return arView
+            // 사이드 버튼
+            VStack(spacing: 14) {
+                Spacer()
+                sideBtn("info.circle.fill", "INFO") { manager.showInfoSheet = true }
+                sideBtn("arrow.counterclockwise", "RESET") { manager.reset() }
+                Spacer().frame(height: 160)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.trailing, 12)
+        }
+        .sheet(isPresented: $manager.showResultSheet) {
+            if let r = manager.currentResult {
+                ResultView(result: r) { manager.showResultSheet = false }
+            }
+        }
+        .sheet(isPresented: $manager.showInfoSheet) { InfoView(manager: manager) }
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {}
-    func makeCoordinator() -> Coordinator { Coordinator(manager: manager) }
+    // MARK: - 조준선 (에임)
 
-    // MARK: - Coordinator
+    private var aimReticle: some View {
+        // 단계별 색상: 기준점/가로=주황, 세로=시안
+        let color: Color = manager.tapStep == .depthEnd ? .cyan : .orange
+        return ZStack {
+            // 바깥 원
+            Circle()
+                .stroke(color, lineWidth: 2)
+                .frame(width: 60, height: 60)
+            // 십자선
+            Rectangle().fill(color).frame(width: 2, height: 22)
+            Rectangle().fill(color).frame(width: 22, height: 2)
+            // 중앙 점
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            // 바깥 흰 외곽 (대비)
+            Circle()
+                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                .frame(width: 64, height: 64)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 2)
+    }
 
-    class Coordinator: NSObject, ARSessionDelegate {
-        let manager: MeasurementManager
-        weak var arView: ARView?
-        private var allAnchors: [AnchorEntity] = []
-        private var pointAnchors: [Int: AnchorEntity] = [:]
-        private var markerEntities: [Int: ModelEntity] = [:]
-        private var numberEntities: [Int: ModelEntity] = [:]
-        private var distEntities: [Int: ModelEntity] = [:]
-        private var labelAnchors: [AnchorEntity] = []
-        private var hasRendered = false
+    // MARK: - 상단
 
-        init(manager: MeasurementManager) { self.manager = manager }
+    private var topBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button {
+                    if manager.tapStep == .widthEnd || manager.tapStep == .depthEnd {
+                        manager.undo()
+                    } else { manager.reset() }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white)
+                }
 
-        // MARK: - 탭
+                // 3단계 인디케이터
+                HStack(spacing: 0) {
+                    sDot("기준점", 1, manager.tapStep.rawValue >= 1, .orange)
+                    sLine(manager.tapStep.rawValue >= 2)
+                    sDot("가로끝", 2, manager.tapStep.rawValue >= 2, .orange)
+                    sLine(manager.tapStep.rawValue >= 3)
+                    sDot("세로끝", 3, manager.tapStep.rawValue >= 3, .cyan)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.4))
+                .cornerRadius(16)
 
-        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let arView else { return }
-            guard manager.tapStep.rawValue <= 3 else { return }
-
-            // ★ 탭 위치가 아닌 "화면 정중앙(조준선)"에서 측정 → 정확도 향상
-            let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-            let hits = arView.raycast(from: center, allowing: .existingPlaneGeometry, alignment: .horizontal)
-            let hit = hits.first ?? arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal).first
-            guard let h = hit else { return }
-
-            let pos = SIMD3<Float>(h.worldTransform.columns.3.x,
-                                    h.worldTransform.columns.3.y,
-                                    h.worldTransform.columns.3.z)
-
-            let step = manager.tapStep
-
-            // 끝점 마커
-            let color: UIColor = step == .depthEnd ? .systemCyan : .systemOrange
-            placeEndpoint(at: pos, color: color)
-
-            // 가로 끝점 → 눈금자 라인
-            if step == .widthEnd, let o = manager.originPoint {
-                drawRuler(from: o, to: pos, color: .systemOrange, label: "가로")
+                Spacer()
+                if manager.floorArea > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.fill").font(.system(size: 8))
+                        Text(String(format: "%.2fm²", manager.floorArea))
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.green.opacity(0.85))
+                    .cornerRadius(6)
+                }
             }
 
-            // 세로 끝점 → 눈금자 라인 (기준점에서 수직)
-            if step == .depthEnd, let o = manager.originPoint {
-                drawRuler(from: o, to: pos, color: .systemCyan, label: "세로")
+            Text("측정 포인트에 마킹")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.white)
+
+            // 측정값 표시
+            if manager.measuredWidth > 0 || manager.measuredDepth > 0 {
+                HStack(spacing: 12) {
+                    if manager.measuredWidth > 0 {
+                        tag("가로 \(String(format: "%.2fm", manager.measuredWidth))", .orange)
+                    }
+                    if manager.measuredDepth > 0 {
+                        tag("세로 \(String(format: "%.2fm", manager.measuredDepth))", .cyan)
+                    }
+                    if manager.floorArea > 0 {
+                        tag("간격 \(String(format: "%.2fm", manager.spacing))", .green)
+                    }
+                }
             }
 
-            manager.handleTap(position: pos)
+            if manager.tapStep == .pointsReady || manager.tapStep == .complete {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(manager.formattedDate)
+                            .font(.system(size: 12, design: .monospaced))
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock").font(.system(size: 10))
+                            Text(manager.formattedTime)
+                                .font(.system(size: 12, design: .monospaced))
+                        }
+                    }
+                    .foregroundColor(.white.opacity(0.8))
+                    Spacer()
+                }
+                .padding(10)
+                .background(Color.black.opacity(0.55))
+                .cornerRadius(10)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 56)
+    }
 
-            // 포인트 배치 후 방 렌더링
-            if manager.tapStep == .pointsReady && !hasRendered {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.renderRoom()
+    // MARK: - 하단
+
+    private var bottomBar: some View {
+        VStack(spacing: 12) {
+            // 포인트 체크리스트
+            if manager.tapStep == .pointsReady || manager.tapStep == .complete {
+                HStack(spacing: 10) {
+                    ForEach(manager.points) { p in
+                        VStack(spacing: 3) {
+                            ZStack {
+                                Circle()
+                                    .fill(p.isChecked ? Color.green
+                                          : p.distanceToUser <= manager.checkRadius * 2 ? Color.yellow
+                                          : p.id == 3 ? Color.red : Color.orange)
+                                    .frame(width: 32, height: 32)
+                                if p.isChecked {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(.white)
+                                } else {
+                                    Text("\(p.id)")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            if p.isChecked {
+                                Text("✓").font(.system(size: 9)).foregroundColor(.green)
+                            } else if p.distanceToUser < 100 {
+                                Text(String(format: "%.1fm", p.distanceToUser))
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(Color.black.opacity(0.45))
+                .cornerRadius(14)
+            }
+
+            // 상태 메시지
+            Text(manager.statusMessage)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20).padding(.vertical, 10)
+                .background(Color.black.opacity(0.65))
+                .cornerRadius(20)
+
+            // 탭 가이드
+            switch manager.tapStep {
+            case .origin:
+                tapGuide("조준선을 기준 모서리에 맞추고 탭", icon: "scope", color: .orange)
+            case .widthEnd:
+                tapGuide("조준선을 가로 끝에 맞추고 탭 →", icon: "scope", color: .orange)
+            case .depthEnd:
+                tapGuide("조준선을 세로 끝에 맞추고 탭 ↓", icon: "scope", color: .cyan)
+            default: EmptyView()
+            }
+
+            // 버튼
+            if manager.tapStep == .pointsReady {
+                actionButton("마킹 완료", color: .green) { manager.completeMarking() }
+            } else if manager.tapStep == .complete {
+                actionButton("결과 보기", color: Color(red: 0.35, green: 0.3, blue: 0.85)) {
+                    manager.showResultSheet = true
                 }
             }
         }
+        .padding(.bottom, 36)
+    }
 
-        // MARK: - 끝점 마커 (◇ 다이아몬드 + 폴)
+    // MARK: - Components
 
-        private func placeEndpoint(at pos: SIMD3<Float>, color: UIColor) {
-            guard let arView else { return }
-            let a = AnchorEntity(world: pos)
-
-            // 바닥 원형 (색상)
-            let dot = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.06, depth: 0.06, cornerRadius: 0.03),
-                materials: [UnlitMaterial(color: color)])
-            dot.position.y = 0.003
-            a.addChild(dot)
-
-            // 세로 기둥 (색상, 잘 보이게)
-            let pole = ModelEntity(
-                mesh: MeshResource.generateBox(width: 0.008, height: 0.12, depth: 0.008),
-                materials: [UnlitMaterial(color: color)])
-            pole.position.y = 0.06
-            a.addChild(pole)
-
-            // 위 구슬
-            let ball = ModelEntity(
-                mesh: MeshResource.generateSphere(radius: 0.02),
-                materials: [UnlitMaterial(color: color)])
-            ball.position.y = 0.12
-            a.addChild(ball)
-
-            arView.scene.addAnchor(a)
-            allAnchors.append(a)
-        }
-
-        // MARK: - ★ 측정 라인 (깔끔한 스타일)
-
-        private func drawRuler(from a: SIMD3<Float>, to b: SIMD3<Float>,
-                               color: UIColor, label: String) {
-            guard let arView else { return }
-            let y = (a.y + b.y) / 2 + 0.004
-            let s = SIMD3<Float>(a.x, y, a.z)
-            let e = SIMD3<Float>(b.x, y, b.z)
-            let dist = simd_distance(SIMD2(a.x, a.z), SIMD2(b.x, b.z))
-            guard dist > 0.01 else { return }
-
-            let dir = simd_normalize(e - s)
-            let totalLen = simd_distance(s, e)
-            let mid = (s + e) / 2
-            let angle = atan2(dir.x, dir.z)
-            let perpAngle = angle + .pi / 2
-
-            // 메인 라인 (선명한 색)
-            addBoxUnlit(at: mid, w: totalLen, h: 0.003, d: 0.012,
-                        color: color, angle: angle)
-
-            // 양 끝 캡만 (눈금 틱 제거 → 깔끔)
-            for ep in [s, e] {
-                addBoxUnlit(at: ep, w: 0.06, h: 0.003, d: 0.012,
-                            color: color, angle: perpAngle)
-            }
-
-            // 거리 라벨 (검정 배경 + 흰 글씨)
-            let labelA = AnchorEntity(world: mid + SIMD3(0, 0.03, 0))
-            let bg = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.20, depth: 0.06, cornerRadius: 0.02),
-                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.8))])
-            bg.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
-            labelA.addChild(bg)
-
-            let distText = dist >= 1.0
-                ? String(format: "%.2fm", dist)
-                : String(format: "%.0fcm", dist * 100)
-            let txt = ModelEntity(
-                mesh: MeshResource.generateText(
-                    distText, extrusionDepth: 0.003,
-                    font: .systemFont(ofSize: 0.045, weight: .bold),
-                    containerFrame: .zero, alignment: .center,
-                    lineBreakMode: .byWordWrapping),
-                materials: [UnlitMaterial(color: .white)])
-            txt.position = SIMD3(-0.05, 0.005, 0)
-            labelA.addChild(txt)
-
-            arView.scene.addAnchor(labelA)
-            allAnchors.append(labelA)
-        }
-
-        // MARK: - 방 렌더링
-
-        private func renderRoom() {
-            guard let arView, let rect = manager.roomRect else { return }
-            hasRendered = true
-            let y = rect.floorY
-            let corners = rect.corners
-
-            // 1) 바닥 경계선 (보라색, 선명)
-            let purple = UIColor(red: 0.5, green: 0.35, blue: 1.0, alpha: 1.0)
-            for i in 0..<4 {
-                let s = SIMD3<Float>(corners[i].x, y + 0.005, corners[i].z)
-                let e = SIMD3<Float>(corners[(i+1)%4].x, y + 0.005, corners[(i+1)%4].z)
-                let d = simd_normalize(e - s)
-                let len = simd_distance(s, e)
-                addBoxUnlit(at: (s + e) / 2, w: len, h: 0.004, d: 0.015,
-                            color: purple, angle: atan2(d.x, d.z))
-            }
-
-            // 2) 가로/세로 치수 라벨 (벽 중앙에)
-            let topMid = (corners[0] + corners[1]) / 2
-            makeLabelBG(at: SIMD3(topMid.x, y + 0.03, topMid.z),
-                        text: String(format: "가로 %.2fm", rect.width), color: .systemOrange)
-            let leftMid = (corners[0] + corners[3]) / 2
-            makeLabelBG(at: SIMD3(leftMid.x, y + 0.03, leftMid.z),
-                        text: String(format: "세로 %.2fm", rect.depth), color: .systemCyan)
-
-            // 3) 면적 (중앙)
-            let center = manager.points[2].position
-            makeLabelBG(at: SIMD3(center.x, y + 0.30, center.z),
-                        text: String(format: "%.1fm²  간격%.2fm", rect.area, manager.spacing),
-                        color: .white)
-
-            // 4) 포인트 (잘 보이게)
-            renderPoints()
-        }
-
-        // MARK: - 포인트
-
-        private func renderPoints() {
-            guard let arView else { return }
-            for p in manager.points {
-                let a = AnchorEntity(world: p.position)
-                let isCenter = p.id == 3
-                let base: UIColor = isCenter ? .systemRed : .systemOrange
-
-                // ★ 바닥 과녁 — 정확한 지점 표시 (체크하기 쉽게)
-                // 바깥 큰 원 (반투명)
-                let outerRing = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.30, depth: 0.30, cornerRadius: 0.15),
-                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.25))])
-                outerRing.position.y = 0.002
-                a.addChild(outerRing)
-
-                // 중간 원
-                let midRing = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.16, depth: 0.16, cornerRadius: 0.08),
-                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.55))])
-                midRing.position.y = 0.003
-                a.addChild(midRing)
-
-                // ★ 십자선 (가로) — 정중앙 표시
-                let crossH = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.28, height: 0.004, depth: 0.012),
-                    materials: [UnlitMaterial(color: .white)])
-                crossH.position.y = 0.004
-                a.addChild(crossH)
-
-                // ★ 십자선 (세로)
-                let crossV = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.012, height: 0.004, depth: 0.28),
-                    materials: [UnlitMaterial(color: .white)])
-                crossV.position.y = 0.004
-                a.addChild(crossV)
-
-                // 정중앙 작은 점 (마킹 지점)
-                let centerDot = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.04, depth: 0.04, cornerRadius: 0.02),
-                    materials: [UnlitMaterial(color: base)])
-                centerDot.position.y = 0.005
-                a.addChild(centerDot)
-                markerEntities[p.id] = centerDot
-
-                // 번호 — 바닥에 평평하게 (위에서 내려다볼 때 읽기 쉽게)
-                let num = ModelEntity(
-                    mesh: MeshResource.generateText(
-                        "\(p.id)", extrusionDepth: 0.005,
-                        font: .systemFont(ofSize: 0.13, weight: .bold),
-                        containerFrame: .zero, alignment: .center,
-                        lineBreakMode: .byWordWrapping),
-                    materials: [UnlitMaterial(color: base)])
-                // 바닥에 눕히기 (-90° X축 회전) + 과녁 위쪽에 배치
-                num.orientation = simd_quatf(angle: -.pi / 2, axis: SIMD3(1, 0, 0))
-                num.position = SIMD3(-0.04, 0.006, -0.20)
-                a.addChild(num)
-                numberEntities[p.id] = num
-                distEntities[p.id] = num
-
-                arView.scene.addAnchor(a)
-                pointAnchors[p.id] = a
+    private func sDot(_ label: String, _ n: Int, _ active: Bool, _ color: Color) -> some View {
+        VStack(spacing: 1) {
+            Text(label).font(.system(size: 7, weight: .medium))
+                .foregroundColor(active ? color : .gray)
+            ZStack {
+                Circle().fill(active ? color : Color.gray.opacity(0.5))
+                    .frame(width: 20, height: 20)
+                Text("\(n)").font(.system(size: 9, weight: .bold)).foregroundColor(.white)
             }
         }
+    }
 
-        // MARK: - 유틸
+    private func sLine(_ active: Bool) -> some View {
+        Rectangle().fill(active ? Color.white.opacity(0.6) : Color.gray.opacity(0.4))
+            .frame(width: 14, height: 2)
+    }
 
-        // UnlitMaterial 버전 (조명 영향 없이 항상 선명)
-        private func addBoxUnlit(at pos: SIMD3<Float>, w: Float, h: Float, d: Float,
-                                 color: UIColor, angle: Float) {
-            guard let arView else { return }
-            let a = AnchorEntity(world: pos)
-            let e = ModelEntity(
-                mesh: MeshResource.generateBox(width: w, height: h, depth: d),
-                materials: [UnlitMaterial(color: color)])
-            e.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
-            a.addChild(e)
-            arView.scene.addAnchor(a)
-            allAnchors.append(a)
+    private func tag(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .foregroundColor(color)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.black.opacity(0.5))
+            .cornerRadius(6)
+    }
+
+    private func tapGuide(_ text: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "hand.tap.fill").font(.system(size: 18)).foregroundColor(color)
+            Text(text).font(.system(size: 14, weight: .medium)).foregroundColor(.white)
+            Image(systemName: icon).font(.system(size: 14)).foregroundColor(color)
         }
+        .padding(.horizontal, 20).padding(.vertical, 10)
+        .background(color.opacity(0.25)).cornerRadius(20)
+    }
 
-        // 배경 있는 라벨 (검정 배경 + 색 글씨)
-        private func makeLabelBG(at pos: SIMD3<Float>, text: String, color: UIColor) {
-            guard let arView else { return }
-            let a = AnchorEntity(world: pos)
-            let bg = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.011 * Float(text.count) + 0.06, depth: 0.06, cornerRadius: 0.02),
-                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.8))])
-            a.addChild(bg)
-            let e = ModelEntity(
-                mesh: MeshResource.generateText(
-                    text, extrusionDepth: 0.002,
-                    font: .systemFont(ofSize: 0.035, weight: .bold),
-                    containerFrame: .zero, alignment: .center,
-                    lineBreakMode: .byWordWrapping),
-                materials: [UnlitMaterial(color: color)])
-            e.position = SIMD3(-0.011 * Float(text.count) / 2, 0, 0.005)
-            a.addChild(e)
-            arView.scene.addAnchor(a)
-            allAnchors.append(a)
-            labelAnchors.append(a)
+    private func actionButton(_ text: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text).font(.system(size: 17, weight: .bold)).foregroundColor(.white)
+                .frame(maxWidth: .infinity).frame(height: 52)
+                .background(color).cornerRadius(12)
         }
+        .padding(.horizontal, 40)
+    }
 
-        // MARK: - ARSessionDelegate
-
-        func session(_ session: ARSession, didUpdate frame: ARFrame) {
-            let t = frame.camera.transform
-            let pos = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.manager.updateCameraPosition(pos)
-                for p in self.manager.points {
-                    guard let m = self.markerEntities[p.id] else { continue }
-                    // 체크되면 초록, 가까우면 노랑, 평소엔 빨강/주황
-                    let c: UIColor = p.isChecked ? .systemGreen
-                        : p.distanceToUser <= self.manager.checkRadius * 2 ? .systemYellow
-                        : p.id == 3 ? .systemRed : .systemOrange
-                    m.model?.materials = [UnlitMaterial(color: c)]
-                }
-                // 치수 라벨만 카메라를 향하도록 (포인트 번호는 바닥 고정)
-                for la in self.labelAnchors {
-                    let dir = pos - la.position(relativeTo: nil)
-                    let ang = atan2(dir.x, dir.z)
-                    la.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
-                }
+    private func sideBtn(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 22))
+                Text(label).font(.system(size: 9, weight: .medium))
             }
+            .foregroundColor(.white).frame(width: 50, height: 50)
+            .background(Color.black.opacity(0.45)).cornerRadius(12)
         }
     }
 }
