@@ -177,9 +177,10 @@ struct ARViewContainer: UIViewRepresentable {
             bg.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
             labelA.addChild(bg)
 
-            let distText = dist >= 1.0
-                ? String(format: "%.2fm", dist)
-                : String(format: "%.0fcm", dist * 100)
+            let calDist = dist * manager.calibration
+            let distText = calDist >= 1.0
+                ? String(format: "%.2fm", calDist)
+                : String(format: "%.0fcm", calDist * 100)
             let txt = ModelEntity(
                 mesh: MeshResource.generateText(
                     distText, extrusionDepth: 0.003,
@@ -393,7 +394,8 @@ struct ARViewContainer: UIViewRepresentable {
             anchor.addChild(line)
 
             // 거리 라벨
-            let distText = len >= 1.0 ? String(format: "%.2fm", len) : String(format: "%.0fcm", len*100)
+            let calLen = len * manager.calibration
+            let distText = calLen >= 1.0 ? String(format: "%.2fm", calLen) : String(format: "%.0fcm", calLen*100)
             let bg = ModelEntity(
                 mesh: MeshResource.generatePlane(width: 0.16, depth: 0.05, cornerRadius: 0.015),
                 materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.7))])
