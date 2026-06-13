@@ -42,6 +42,7 @@ struct ARViewContainer: UIViewRepresentable {
         private var markerEntities: [Int: ModelEntity] = [:]
         private var numberEntities: [Int: ModelEntity] = [:]
         private var distEntities: [Int: ModelEntity] = [:]
+        private var labelAnchors: [AnchorEntity] = []
         private var hasRendered = false
 
         init(manager: MeasurementManager) { self.manager = manager }
@@ -93,24 +94,32 @@ struct ARViewContainer: UIViewRepresentable {
             guard let arView else { return }
             let a = AnchorEntity(world: pos)
 
+            // 바닥 원형 (색상)
             let dot = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.025, depth: 0.025, cornerRadius: 0.002),
-                materials: [SimpleMaterial(color: .white, isMetallic: false)])
+                mesh: MeshResource.generatePlane(width: 0.06, depth: 0.06, cornerRadius: 0.03),
+                materials: [UnlitMaterial(color: color)])
             dot.position.y = 0.003
-            dot.orientation = simd_quatf(angle: .pi / 4, axis: SIMD3(0, 1, 0))
             a.addChild(dot)
 
+            // 세로 기둥 (색상, 잘 보이게)
             let pole = ModelEntity(
-                mesh: MeshResource.generateBox(width: 0.003, height: 0.06, depth: 0.003),
-                materials: [SimpleMaterial(color: .white.withAlphaComponent(0.8), isMetallic: false)])
-            pole.position.y = 0.033
+                mesh: MeshResource.generateBox(width: 0.008, height: 0.12, depth: 0.008),
+                materials: [UnlitMaterial(color: color)])
+            pole.position.y = 0.06
             a.addChild(pole)
+
+            // 위 구슬
+            let ball = ModelEntity(
+                mesh: MeshResource.generateSphere(radius: 0.02),
+                materials: [UnlitMaterial(color: color)])
+            ball.position.y = 0.12
+            a.addChild(ball)
 
             arView.scene.addAnchor(a)
             allAnchors.append(a)
         }
 
-        // MARK: - ★ 눈금자 라인 (아이폰 측정앱 스타일)
+        // MARK: - ★ 측정 라인 (깔끔한 스타일)
 
         private func drawRuler(from a: SIMD3<Float>, to b: SIMD3<Float>,
                                color: UIColor, label: String) {
@@ -125,34 +134,23 @@ struct ARViewContainer: UIViewRepresentable {
             let totalLen = simd_distance(s, e)
             let mid = (s + e) / 2
             let angle = atan2(dir.x, dir.z)
-
-            // 메인 라인
-            addBox(at: mid, w: totalLen, h: 0.002, d: 0.004,
-                   color: .white.withAlphaComponent(0.9), angle: angle)
-
-            // 눈금 (10cm 간격)
             let perpAngle = angle + .pi / 2
-            let numTicks = Int(totalLen / 0.10)
-            for i in 0...numTicks {
-                let t = Float(i) * 0.10
-                if t > totalLen { break }
-                let pos = s + dir * t
-                let big = (i % 5 == 0)
-                addBox(at: pos, w: big ? 0.025 : 0.012, h: 0.002, d: big ? 0.004 : 0.002,
-                       color: .white.withAlphaComponent(0.7), angle: perpAngle)
-            }
 
-            // 양 끝 캡
+            // 메인 라인 (선명한 색)
+            addBoxUnlit(at: mid, w: totalLen, h: 0.003, d: 0.012,
+                        color: color, angle: angle)
+
+            // 양 끝 캡만 (눈금 틱 제거 → 깔끔)
             for ep in [s, e] {
-                addBox(at: ep, w: 0.04, h: 0.002, d: 0.005,
-                       color: .white, angle: perpAngle)
+                addBoxUnlit(at: ep, w: 0.06, h: 0.003, d: 0.012,
+                            color: color, angle: perpAngle)
             }
 
-            // 거리 라벨 (배경 + 텍스트)
-            let labelA = AnchorEntity(world: mid + SIMD3(0, 0.002, 0))
+            // 거리 라벨 (검정 배경 + 흰 글씨)
+            let labelA = AnchorEntity(world: mid + SIMD3(0, 0.03, 0))
             let bg = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.18, depth: 0.05, cornerRadius: 0.015),
-                materials: [SimpleMaterial(color: UIColor.black.withAlphaComponent(0.75), isMetallic: false)])
+                mesh: MeshResource.generatePlane(width: 0.20, depth: 0.06, cornerRadius: 0.02),
+                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.8))])
             bg.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
             labelA.addChild(bg)
 
@@ -162,11 +160,11 @@ struct ARViewContainer: UIViewRepresentable {
             let txt = ModelEntity(
                 mesh: MeshResource.generateText(
                     distText, extrusionDepth: 0.003,
-                    font: .systemFont(ofSize: 0.035, weight: .bold),
+                    font: .systemFont(ofSize: 0.045, weight: .bold),
                     containerFrame: .zero, alignment: .center,
                     lineBreakMode: .byWordWrapping),
-                materials: [SimpleMaterial(color: .white, isMetallic: false)])
-            txt.position = SIMD3(-0.04, 0.004, 0)
+                materials: [UnlitMaterial(color: .white)])
+            txt.position = SIMD3(-0.05, 0.005, 0)
             labelA.addChild(txt)
 
             arView.scene.addAnchor(labelA)
@@ -181,125 +179,33 @@ struct ARViewContainer: UIViewRepresentable {
             let y = rect.floorY
             let corners = rect.corners
 
-            // 바닥 경계선 (보라색)
-            let purple = UIColor(red: 0.4, green: 0.3, blue: 1.0, alpha: 0.8)
+            // 1) 바닥 경계선 (보라색, 선명)
+            let purple = UIColor(red: 0.5, green: 0.35, blue: 1.0, alpha: 1.0)
             for i in 0..<4 {
                 let s = SIMD3<Float>(corners[i].x, y + 0.005, corners[i].z)
                 let e = SIMD3<Float>(corners[(i+1)%4].x, y + 0.005, corners[(i+1)%4].z)
                 let d = simd_normalize(e - s)
                 let len = simd_distance(s, e)
-                addBox(at: (s + e) / 2, w: len, h: 0.003, d: 0.012,
-                       color: purple, angle: atan2(d.x, d.z))
+                addBoxUnlit(at: (s + e) / 2, w: len, h: 0.004, d: 0.015,
+                            color: purple, angle: atan2(d.x, d.z))
             }
 
-            // 안쪽 포인트 영역 (녹색)
-            let sp: Float = manager.spacing
-            let sw: Float = min(sp, rect.width / 3)
-            let sd: Float = min(sp, rect.depth / 3)
+            // 2) 가로/세로 치수 라벨 (벽 중앙에)
+            let topMid = (corners[0] + corners[1]) / 2
+            makeLabelBG(at: SIMD3(topMid.x, y + 0.03, topMid.z),
+                        text: String(format: "가로 %.2fm", rect.width), color: .systemOrange)
+            let leftMid = (corners[0] + corners[3]) / 2
+            makeLabelBG(at: SIMD3(leftMid.x, y + 0.03, leftMid.z),
+                        text: String(format: "세로 %.2fm", rect.depth), color: .systemCyan)
 
-            // 컴파일러 타입 추론 부담을 줄이기 위해 단계별로 계산
-            let wDir: SIMD3<Float> = rect.widthDir
-            let dDir: SIMD3<Float> = rect.depthDir
-            let org: SIMD3<Float> = rect.origin
-            let wNear: SIMD3<Float> = wDir * sw
-            let wFar: SIMD3<Float> = wDir * (rect.width - sw)
-            let dNear: SIMD3<Float> = dDir * sd
-            let dFar: SIMD3<Float> = dDir * (rect.depth - sd)
+            // 3) 면적 (중앙)
+            let center = manager.points[2].position
+            makeLabelBG(at: SIMD3(center.x, y + 0.30, center.z),
+                        text: String(format: "%.1fm²  간격%.2fm", rect.area, manager.spacing),
+                        color: .white)
 
-            let ip0: SIMD3<Float> = org + wNear + dNear
-            let ip1: SIMD3<Float> = org + wFar + dNear
-            let ip2: SIMD3<Float> = org + wFar + dFar
-            let ip3: SIMD3<Float> = org + wNear + dFar
-            let ip: [SIMD3<Float>] = [ip0, ip1, ip2, ip3]
-            for i in 0..<4 {
-                let s = SIMD3<Float>(ip[i].x, y + 0.006, ip[i].z)
-                let e = SIMD3<Float>(ip[(i+1)%4].x, y + 0.006, ip[(i+1)%4].z)
-                let d = simd_normalize(e - s)
-                let len = simd_distance(s, e)
-                addBox(at: (s + e) / 2, w: len, h: 0.002, d: 0.006,
-                       color: .systemGreen.withAlphaComponent(0.5), angle: atan2(d.x, d.z))
-            }
-
-            // ★ 간격 표시: 벽→포인트 거리 (가로/세로 각각)
-            // 가로 간격 (좌벽 → 포인트2)
-            let cornerBase: SIMD3<Float> = SIMD3<Float>(corners[0].x, y + 0.007, corners[0].z)
-            let depthOffset: SIMD3<Float> = rect.depthDir * sd
-            let widthOffset: SIMD3<Float> = rect.widthDir * sw
-            let wSpacingStart: SIMD3<Float> = cornerBase + depthOffset
-            let wSpacingEnd: SIMD3<Float> = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
-            drawSpacingLine(from: wSpacingStart, to: wSpacingEnd,
-                            text: String(format: "가로 %.2fm", sw), color: .systemGreen)
-
-            // 세로 간격 (상벽 → 포인트2)
-            let dSpacingStart: SIMD3<Float> = cornerBase + widthOffset
-            let dSpacingEnd: SIMD3<Float> = SIMD3<Float>(ip[0].x, y + 0.007, ip[0].z)
-            drawSpacingLine(from: dSpacingStart, to: dSpacingEnd,
-                            text: String(format: "세로 %.2fm", sd), color: .systemGreen)
-
-            // 면적 (중앙 = 3번 포인트)
-            let center = manager.points[2].position  // id 3 = 중앙
-            makeLabel(at: SIMD3(center.x, y + 0.025, center.z),
-                      text: String(format: "%.1fm²", rect.area), size: 0.05, color: .white)
-
-            // 대각선 표시 (1→5)
-            let p1 = manager.points[0].position  // id 1 = 우상
-            let p5 = manager.points[4].position  // id 5 = 좌하
-            let diagDist = simd_distance(p1, p5)
-            drawRuler(from: p1, to: p5, color: .systemPurple, label: String(format: "대각선 %.2fm", diagDist))
-
-            // 포인트
+            // 4) 포인트 (잘 보이게)
             renderPoints()
-
-            // 1→5, 2→4 대각선 점선 (중앙이 교차점에 있음을 표시)
-            let p2 = manager.points[1].position  // id 2 = 좌상
-            let p4 = manager.points[3].position  // id 4 = 우하
-            drawDashedLine(from: p1, to: p5, color: .white.withAlphaComponent(0.3), y: y + 0.006)
-            drawDashedLine(from: p2, to: p4, color: .white.withAlphaComponent(0.3), y: y + 0.006)
-        }
-
-        // MARK: - 간격 표시선 (벽→포인트)
-
-        private func drawSpacingLine(from a: SIMD3<Float>, to b: SIMD3<Float>,
-                                     text: String, color: UIColor) {
-            let dir = simd_normalize(b - a)
-            let len = simd_distance(a, b)
-            let mid = (a + b) / 2
-            let angle = atan2(dir.x, dir.z)
-
-            // 화살표 라인
-            addBox(at: mid, w: len, h: 0.002, d: 0.004,
-                   color: color, angle: angle)
-
-            // 양 끝 캡
-            let perpAngle = angle + .pi / 2
-            for ep in [a, b] {
-                addBox(at: ep, w: 0.02, h: 0.002, d: 0.003,
-                       color: color, angle: perpAngle)
-            }
-
-            // 라벨
-            makeLabel(at: mid + SIMD3(0, 0.025, 0), text: text, size: 0.025, color: color)
-        }
-
-        // MARK: - 점선
-
-        private func drawDashedLine(from a: SIMD3<Float>, to b: SIMD3<Float>,
-                                    color: UIColor, y: Float) {
-            let s = SIMD3<Float>(a.x, y, a.z)
-            let e = SIMD3<Float>(b.x, y, b.z)
-            let len = simd_distance(s, e)
-            let dir = simd_normalize(e - s)
-            let angle = atan2(dir.x, dir.z)
-            let segLen: Float = 0.04
-            let gap: Float = 0.03
-            var t: Float = 0
-            while t < len {
-                let segEnd = min(t + segLen, len)
-                let mid = s + dir * ((t + segEnd) / 2)
-                addBox(at: mid, w: segEnd - t, h: 0.002, d: 0.004,
-                       color: color, angle: angle)
-                t += segLen + gap
-            }
         }
 
         // MARK: - 포인트
@@ -309,42 +215,60 @@ struct ARViewContainer: UIViewRepresentable {
             for p in manager.points {
                 let a = AnchorEntity(world: p.position)
                 let isCenter = p.id == 3
+                // 중앙=빨강, 코너=주황 (UnlitMaterial로 항상 선명)
                 let base: UIColor = isCenter ? .systemRed : .systemOrange
 
-                let outer = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.16, depth: 0.16, cornerRadius: 0.08),
-                    materials: [SimpleMaterial(color: base.withAlphaComponent(0.3), isMetallic: false)])
-                outer.position.y = 0.003
-                a.addChild(outer)
+                // 바닥 원형 마커 (납작) — 위치 표시
+                let disc = ModelEntity(
+                    mesh: MeshResource.generatePlane(width: 0.14, depth: 0.14, cornerRadius: 0.07),
+                    materials: [UnlitMaterial(color: base.withAlphaComponent(0.55))])
+                disc.position.y = 0.003
+                a.addChild(disc)
 
-                let inner = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.05, depth: 0.05, cornerRadius: 0.025),
-                    materials: [SimpleMaterial(color: base, isMetallic: false)])
-                inner.position.y = 0.004
-                a.addChild(inner)
-                markerEntities[p.id] = inner
+                // ★ 세로 기둥 (바닥에서 위로) — 멀리서도 보임
+                let pole = ModelEntity(
+                    mesh: MeshResource.generateBox(width: 0.012, height: 0.25, depth: 0.012),
+                    materials: [UnlitMaterial(color: base)])
+                pole.position.y = 0.125
+                a.addChild(pole)
+
+                // ★ 기둥 위 구슬 (밝은 색)
+                let ball = ModelEntity(
+                    mesh: MeshResource.generateSphere(radius: 0.035),
+                    materials: [UnlitMaterial(color: base)])
+                ball.position.y = 0.25
+                a.addChild(ball)
+                markerEntities[p.id] = ball
+
+                // 번호 (구슬 위, 색 배경)
+                let numBg = ModelEntity(
+                    mesh: MeshResource.generatePlane(width: 0.10, depth: 0.10, cornerRadius: 0.05),
+                    materials: [UnlitMaterial(color: base)])
+                numBg.position = SIMD3(0, 0.34, 0)
+                a.addChild(numBg)
 
                 let num = ModelEntity(
                     mesh: MeshResource.generateText(
-                        "\(p.id)", extrusionDepth: 0.006,
-                        font: .systemFont(ofSize: 0.09, weight: .bold),
+                        "\(p.id)", extrusionDepth: 0.005,
+                        font: .systemFont(ofSize: 0.07, weight: .bold),
                         containerFrame: .zero, alignment: .center,
                         lineBreakMode: .byWordWrapping),
-                    materials: [SimpleMaterial(color: base, isMetallic: false)])
-                num.position = SIMD3(-0.025, 0.14, 0)
+                    materials: [UnlitMaterial(color: .white)])
+                num.position = SIMD3(-0.02, 0.31, 0.01)
                 a.addChild(num)
                 numberEntities[p.id] = num
 
-                let dist = ModelEntity(
+                // 라벨 (좌상/우상 등)
+                let lbl = ModelEntity(
                     mesh: MeshResource.generateText(
-                        "--", extrusionDepth: 0.002,
-                        font: .systemFont(ofSize: 0.03),
+                        p.label, extrusionDepth: 0.002,
+                        font: .systemFont(ofSize: 0.03, weight: .semibold),
                         containerFrame: .zero, alignment: .center,
                         lineBreakMode: .byWordWrapping),
-                    materials: [SimpleMaterial(color: .white, isMetallic: false)])
-                dist.position = SIMD3(-0.015, 0.06, 0)
-                a.addChild(dist)
-                distEntities[p.id] = dist
+                    materials: [UnlitMaterial(color: base)])
+                lbl.position = SIMD3(-0.04, 0.42, 0)
+                a.addChild(lbl)
+                distEntities[p.id] = lbl
 
                 arView.scene.addAnchor(a)
                 pointAnchors[p.id] = a
@@ -353,33 +277,40 @@ struct ARViewContainer: UIViewRepresentable {
 
         // MARK: - 유틸
 
-        private func addBox(at pos: SIMD3<Float>, w: Float, h: Float, d: Float,
-                            color: UIColor, angle: Float) {
+        // UnlitMaterial 버전 (조명 영향 없이 항상 선명)
+        private func addBoxUnlit(at pos: SIMD3<Float>, w: Float, h: Float, d: Float,
+                                 color: UIColor, angle: Float) {
             guard let arView else { return }
             let a = AnchorEntity(world: pos)
             let e = ModelEntity(
                 mesh: MeshResource.generateBox(width: w, height: h, depth: d),
-                materials: [SimpleMaterial(color: color, isMetallic: false)])
+                materials: [UnlitMaterial(color: color)])
             e.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
             a.addChild(e)
             arView.scene.addAnchor(a)
             allAnchors.append(a)
         }
 
-        private func makeLabel(at pos: SIMD3<Float>, text: String,
-                               size: CGFloat, color: UIColor) {
+        // 배경 있는 라벨 (검정 배경 + 색 글씨)
+        private func makeLabelBG(at pos: SIMD3<Float>, text: String, color: UIColor) {
             guard let arView else { return }
             let a = AnchorEntity(world: pos)
+            let bg = ModelEntity(
+                mesh: MeshResource.generatePlane(width: 0.011 * Float(text.count) + 0.06, depth: 0.06, cornerRadius: 0.02),
+                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.8))])
+            a.addChild(bg)
             let e = ModelEntity(
                 mesh: MeshResource.generateText(
                     text, extrusionDepth: 0.002,
-                    font: .systemFont(ofSize: size, weight: .semibold),
+                    font: .systemFont(ofSize: 0.035, weight: .bold),
                     containerFrame: .zero, alignment: .center,
                     lineBreakMode: .byWordWrapping),
-                materials: [SimpleMaterial(color: color, isMetallic: false)])
+                materials: [UnlitMaterial(color: color)])
+            e.position = SIMD3(-0.011 * Float(text.count) / 2, 0, 0.005)
             a.addChild(e)
             arView.scene.addAnchor(a)
             allAnchors.append(a)
+            labelAnchors.append(a)
         }
 
         // MARK: - ARSessionDelegate
@@ -391,29 +322,27 @@ struct ARViewContainer: UIViewRepresentable {
                 guard let self else { return }
                 self.manager.updateCameraPosition(pos)
                 for p in self.manager.points {
-                    guard let m = self.markerEntities[p.id], let n = self.numberEntities[p.id] else { continue }
+                    guard let m = self.markerEntities[p.id] else { continue }
+                    // 체크되면 초록, 가까우면 노랑, 평소엔 빨강/주황
                     let c: UIColor = p.isChecked ? .systemGreen
                         : p.distanceToUser <= self.manager.checkRadius * 2 ? .systemYellow
                         : p.id == 3 ? .systemRed : .systemOrange
-                    m.model?.materials = [SimpleMaterial(color: c, isMetallic: false)]
-                    n.model?.materials = [SimpleMaterial(color: c, isMetallic: false)]
+                    m.model?.materials = [UnlitMaterial(color: c)]
                 }
+                // 모든 라벨/번호가 카메라를 향하도록 (빌보드)
                 for p in self.manager.points {
-                    guard let d = self.distEntities[p.id] else { continue }
-                    let txt = p.isChecked ? "✓" : String(format: "%.1fm", p.distanceToUser)
-                    d.model?.mesh = MeshResource.generateText(
-                        txt, extrusionDepth: 0.002,
-                        font: .systemFont(ofSize: 0.03),
-                        containerFrame: .zero, alignment: .center,
-                        lineBreakMode: .byWordWrapping)
-                    d.model?.materials = [SimpleMaterial(
-                        color: p.isChecked ? .systemGreen : .white, isMetallic: false)]
-                    if let a = self.pointAnchors[p.id] {
-                        let dir = pos - a.position(relativeTo: nil)
+                    if let anchor = self.pointAnchors[p.id] {
+                        let dir = pos - anchor.position(relativeTo: nil)
                         let ang = atan2(dir.x, dir.z)
-                        d.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
                         self.numberEntities[p.id]?.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
+                        self.distEntities[p.id]?.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
                     }
+                }
+                // 치수 라벨들도 카메라를 향하도록
+                for la in self.labelAnchors {
+                    let dir = pos - la.position(relativeTo: nil)
+                    let ang = atan2(dir.x, dir.z)
+                    la.orientation = simd_quatf(angle: ang, axis: SIMD3(0, 1, 0))
                 }
             }
         }
