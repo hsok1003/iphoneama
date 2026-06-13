@@ -52,10 +52,8 @@ struct ARViewContainer: UIViewRepresentable {
         private var hasRendered = false
         var lastResetToken = 0   // ★ 초기화 감지용
 
-        // ★ 실시간 미리보기 + 직각 스냅
+        // ★ 실시간 미리보기 라인
         private var liveAnchors: [AnchorEntity] = []
-        private var currentAimPos: SIMD3<Float>?   // 현재 조준 위치 (스냅 반영)
-        private var isSnapped = false              // 직각에 스냅됐는지
         private var frameCounter = 0               // 미리보기 갱신 빈도 제한
 
         init(manager: MeasurementManager) { self.manager = manager }
@@ -83,15 +81,8 @@ struct ARViewContainer: UIViewRepresentable {
             guard let arView else { return }
             guard manager.tapStep.rawValue <= 3 else { return }
 
-            // ★ 미리보기에서 계산된 (스냅 반영된) 위치를 우선 사용 → 화면 라인과 일치
-            let pos: SIMD3<Float>
-            if let aim = currentAimPos {
-                pos = aim
-            } else if let rc = centerRaycast() {
-                pos = rc
-            } else {
-                return
-            }
+            // ★ 탭 순간 화면 중앙에서 정확히 측정 (스냅 없음 → 오차 없음)
+            guard let pos = centerRaycast() else { return }
 
             let step = manager.tapStep
 
@@ -370,78 +361,17 @@ struct ARViewContainer: UIViewRepresentable {
         }
 
         private func updateLivePreview() {
-            guard let arView else { return }
+            guard arView != nil else { return }
             clearLive()
 
-            guard let aimRaw = centerRaycast() else { currentAimPos = nil; return }
-
+            // 1단계(가로 시작): 아직 점이 없음 → 라인 표시 안 함 (조준선만)
             let step = manager.tapStep
-            var aim = aimRaw
-            isSnapped = false
+            guard step == .widthEnd || step == .depthEnd else { return }
+            guard let o = manager.originPoint else { return }
+            guard let aim = centerRaycast() else { return }
 
-            // 1단계(가로 시작): 조준점만 표시
-            if step == .origin {
-                currentAimPos = aim
-                addLiveDot(at: aim, color: .systemOrange)
-                return
-            }
-
-            guard let o = manager.originPoint else { currentAimPos = aim; return }
-
-            // 2단계(가로 끝): 기준점 → 조준점 라인
-            if step == .widthEnd {
-                currentAimPos = aim
-                drawLiveLine(from: o, to: aim, color: .systemOrange)
-                addLiveDot(at: aim, color: .systemOrange)
-                return
-            }
-
-            // 3단계(세로 끝): 직각 가이드 + 스냅
-            if step == .depthEnd, let we = manager.widthEndPoint {
-                let wDir = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
-                let perp = SIMD3<Float>(-wDir.z, 0, wDir.x)
-                let aimVec = SIMD3<Float>(aim.x - o.x, 0, aim.z - o.z)
-                let len = simd_length(aimVec)
-
-                if len > 0.05 {
-                    let aimDir = aimVec / len
-                    // 직각 방향과의 각도 (양쪽 모두 고려)
-                    let dotP = simd_dot(aimDir, perp)
-                    let signedPerp = dotP >= 0 ? perp : -perp
-                    let angle = acos(min(1, max(-1, abs(dotP))))  // 0이면 완전 직각
-
-                    // 약 7도(0.12rad) 이내면 직각으로 스냅 (직사각형 가정)
-                    if angle < 0.12 {
-                        aim = SIMD3<Float>(o.x, aim.y, o.z) + signedPerp * len
-                        isSnapped = true
-                    }
-
-                    // 직각 가이드 라인 (기준점에서 수직 방향, 회색 점선 느낌)
-                    let guideEnd = SIMD3<Float>(o.x, aim.y, o.z) + signedPerp * len
-                    drawLiveLine(from: o, to: guideEnd,
-                                 color: isSnapped ? .systemYellow : UIColor.white.withAlphaComponent(0.4))
-                }
-
-                currentAimPos = aim
-                // 기준점 → 조준점 실제 라인
-                drawLiveLine(from: o, to: aim, color: isSnapped ? .systemYellow : .systemCyan)
-                addLiveDot(at: aim, color: isSnapped ? .systemYellow : .systemCyan)
-                return
-            }
-
-            currentAimPos = aim
-        }
-
-        private func addLiveDot(at pos: SIMD3<Float>, color: UIColor) {
-            guard let arView else { return }
-            let a = AnchorEntity(world: pos)
-            let dot = ModelEntity(
-                mesh: MeshResource.generatePlane(width: 0.05, depth: 0.05, cornerRadius: 0.025),
-                materials: [UnlitMaterial(color: color)])
-            dot.position.y = 0.004
-            a.addChild(dot)
-            arView.scene.addAnchor(a)
-            liveAnchors.append(a)
+            // 첫 점(또는 기준점)에서 현재 조준선까지 흰색 라인 + 거리
+            drawLiveLine(from: o, to: aim, color: .white)
         }
 
         private func drawLiveLine(from s: SIMD3<Float>, to e: SIMD3<Float>, color: UIColor) {
