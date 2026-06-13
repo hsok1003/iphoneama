@@ -214,18 +214,19 @@ struct ARViewContainer: UIViewRepresentable {
                             color: purple, angle: atan2(-d.z, d.x))
             }
 
-            // 2) 가로/세로 치수 라벨 (벽 중앙에)
+            // 2) 가로/세로 치수 라벨 (보정된 실제 거리 표시)
+            let cal = manager.calibration
             let topMid = (corners[0] + corners[1]) / 2
             makeLabelBG(at: SIMD3(topMid.x, y + 0.03, topMid.z),
-                        text: String(format: "가로 %.2fm", rect.width), color: .systemOrange)
+                        text: String(format: "가로 %.2fm", rect.width * cal), color: .systemOrange)
             let leftMid = (corners[0] + corners[3]) / 2
             makeLabelBG(at: SIMD3(leftMid.x, y + 0.03, leftMid.z),
-                        text: String(format: "세로 %.2fm", rect.depth), color: .systemCyan)
+                        text: String(format: "세로 %.2fm", rect.depth * cal), color: .systemCyan)
 
-            // 3) 면적 (중앙)
+            // 3) 면적 (중앙) — 보정된 면적
             let center = manager.points[2].position
             makeLabelBG(at: SIMD3(center.x, y + 0.30, center.z),
-                        text: String(format: "%.1fm²  간격%.2fm", rect.area, manager.spacing),
+                        text: String(format: "%.1fm²  간격%.2fm", manager.floorArea, manager.spacing),
                         color: .white)
 
             // 4) 포인트 (잘 보이게)
