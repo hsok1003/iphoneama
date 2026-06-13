@@ -173,8 +173,10 @@ class MeasurementManager: ObservableObject {
         let floorY: Float = (o.y + we.y + depthTap.y) / 3
         let origin: SIMD3<Float> = SIMD3<Float>(o.x, floorY, o.z)
 
+        // ★ RoomRect 기하학은 원본 AR 크기 사용 (실제 탭한 모서리와 일치)
+        //    보정은 표시 숫자와 간격 계산에만 적용
         let rect = RoomRect(origin: origin, widthDir: wDir, depthDir: finalDDir,
-                            width: measuredWidth, depth: measuredDepth, floorY: floorY)
+                            width: arWidth, depth: arDepth, floorY: floorY)
         roomRect = rect
         let crossY: Float = wDir.x * finalDDir.z - wDir.z * finalDDir.x
         floorArea = measuredWidth * measuredDepth * abs(crossY)
