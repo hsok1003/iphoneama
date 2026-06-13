@@ -52,17 +52,20 @@ struct ARViewContainer: UIViewRepresentable {
         private var hasRendered = false
         var lastResetToken = 0   // ★ 초기화 감지용
 
+        // ★ 실시간 미리보기 + 직각 스냅
+        private var liveAnchors: [AnchorEntity] = []
+        private var currentAimPos: SIMD3<Float>?   // 현재 조준 위치 (스냅 반영)
+        private var isSnapped = false              // 직각에 스냅됐는지
+        private var frameCounter = 0               // 미리보기 갱신 빈도 제한
+
         init(manager: MeasurementManager) { self.manager = manager }
 
         // MARK: - 탭
 
-        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let arView else { return }
-            guard manager.tapStep.rawValue <= 3 else { return }
-
-            // ★ 탭 위치가 아닌 "화면 정중앙(조준선)"에서 측정
+        // 화면 중앙 레이캐스트 (정확도 우선순위)
+        private func centerRaycast() -> SIMD3<Float>? {
+            guard let arView else { return nil }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-            // 정확도 우선순위: 감지된 평면 메시 > 평면 무한확장 > 추정 평면
             var hit = arView.raycast(from: center, allowing: .existingPlaneGeometry, alignment: .horizontal).first
             if hit == nil {
                 hit = arView.raycast(from: center, allowing: .existingPlaneInfinite, alignment: .horizontal).first
@@ -70,11 +73,25 @@ struct ARViewContainer: UIViewRepresentable {
             if hit == nil {
                 hit = arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal).first
             }
-            guard let h = hit else { return }
+            guard let h = hit else { return nil }
+            return SIMD3<Float>(h.worldTransform.columns.3.x,
+                                h.worldTransform.columns.3.y,
+                                h.worldTransform.columns.3.z)
+        }
 
-            let pos = SIMD3<Float>(h.worldTransform.columns.3.x,
-                                    h.worldTransform.columns.3.y,
-                                    h.worldTransform.columns.3.z)
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard let arView else { return }
+            guard manager.tapStep.rawValue <= 3 else { return }
+
+            // ★ 미리보기에서 계산된 (스냅 반영된) 위치를 우선 사용 → 화면 라인과 일치
+            let pos: SIMD3<Float>
+            if let aim = currentAimPos {
+                pos = aim
+            } else if let rc = centerRaycast() {
+                pos = rc
+            } else {
+                return
+            }
 
             let step = manager.tapStep
 
@@ -82,12 +99,12 @@ struct ARViewContainer: UIViewRepresentable {
             let color: UIColor = step == .depthEnd ? .systemCyan : .systemOrange
             placeEndpoint(at: pos, color: color)
 
-            // 가로 끝점 → 눈금자 라인
+            // 가로 끝점 → 측정 라인
             if step == .widthEnd, let o = manager.originPoint {
                 drawRuler(from: o, to: pos, color: .systemOrange, label: "가로")
             }
 
-            // 세로 끝점 → 눈금자 라인 (기준점에서 수직)
+            // 세로 끝점 → 측정 라인
             if step == .depthEnd, let o = manager.originPoint {
                 drawRuler(from: o, to: pos, color: .systemCyan, label: "세로")
             }
@@ -96,6 +113,7 @@ struct ARViewContainer: UIViewRepresentable {
 
             // 포인트 배치 후 방 렌더링
             if manager.tapStep == .pointsReady && !hasRendered {
+                clearLive()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                     self?.renderRoom()
                 }
@@ -319,15 +337,22 @@ struct ARViewContainer: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.manager.updateCameraPosition(pos)
+
+                // ★ 측정 중이면 실시간 미리보기 라인 갱신 (약 10fps로 제한)
+                if self.manager.tapStep.rawValue <= 3 {
+                    self.frameCounter += 1
+                    if self.frameCounter % 6 == 0 {
+                        self.updateLivePreview()
+                    }
+                }
+
                 for p in self.manager.points {
                     guard let m = self.markerEntities[p.id] else { continue }
-                    // 체크되면 초록, 가까우면 노랑, 평소엔 빨강/주황
                     let c: UIColor = p.isChecked ? .systemGreen
                         : p.distanceToUser <= self.manager.checkRadius * 2 ? .systemYellow
                         : p.id == 3 ? .systemRed : .systemOrange
                     m.model?.materials = [UnlitMaterial(color: c)]
                 }
-                // 치수 라벨만 카메라를 향하도록 (포인트 번호는 바닥 고정)
                 for la in self.labelAnchors {
                     let dir = pos - la.position(relativeTo: nil)
                     let ang = atan2(dir.x, dir.z)
@@ -336,10 +361,132 @@ struct ARViewContainer: UIViewRepresentable {
             }
         }
 
+        // MARK: - ★ 실시간 미리보기 + 직각 스냅
+
+        private func clearLive() {
+            guard let arView else { return }
+            for a in liveAnchors { arView.scene.removeAnchor(a) }
+            liveAnchors.removeAll()
+        }
+
+        private func updateLivePreview() {
+            guard let arView else { return }
+            clearLive()
+
+            guard let aimRaw = centerRaycast() else { currentAimPos = nil; return }
+
+            let step = manager.tapStep
+            var aim = aimRaw
+            isSnapped = false
+
+            // 1단계(가로 시작): 조준점만 표시
+            if step == .origin {
+                currentAimPos = aim
+                addLiveDot(at: aim, color: .systemOrange)
+                return
+            }
+
+            guard let o = manager.originPoint else { currentAimPos = aim; return }
+
+            // 2단계(가로 끝): 기준점 → 조준점 라인
+            if step == .widthEnd {
+                currentAimPos = aim
+                drawLiveLine(from: o, to: aim, color: .systemOrange)
+                addLiveDot(at: aim, color: .systemOrange)
+                return
+            }
+
+            // 3단계(세로 끝): 직각 가이드 + 스냅
+            if step == .depthEnd, let we = manager.widthEndPoint {
+                let wDir = simd_normalize(SIMD3<Float>(we.x - o.x, 0, we.z - o.z))
+                let perp = SIMD3<Float>(-wDir.z, 0, wDir.x)
+                let aimVec = SIMD3<Float>(aim.x - o.x, 0, aim.z - o.z)
+                let len = simd_length(aimVec)
+
+                if len > 0.05 {
+                    let aimDir = aimVec / len
+                    // 직각 방향과의 각도 (양쪽 모두 고려)
+                    let dotP = simd_dot(aimDir, perp)
+                    let signedPerp = dotP >= 0 ? perp : -perp
+                    let angle = acos(min(1, max(-1, abs(dotP))))  // 0이면 완전 직각
+
+                    // 약 7도(0.12rad) 이내면 직각으로 스냅 (직사각형 가정)
+                    if angle < 0.12 {
+                        aim = SIMD3<Float>(o.x, aim.y, o.z) + signedPerp * len
+                        isSnapped = true
+                    }
+
+                    // 직각 가이드 라인 (기준점에서 수직 방향, 회색 점선 느낌)
+                    let guideEnd = SIMD3<Float>(o.x, aim.y, o.z) + signedPerp * len
+                    drawLiveLine(from: o, to: guideEnd,
+                                 color: isSnapped ? .systemYellow : UIColor.white.withAlphaComponent(0.4))
+                }
+
+                currentAimPos = aim
+                // 기준점 → 조준점 실제 라인
+                drawLiveLine(from: o, to: aim, color: isSnapped ? .systemYellow : .systemCyan)
+                addLiveDot(at: aim, color: isSnapped ? .systemYellow : .systemCyan)
+                return
+            }
+
+            currentAimPos = aim
+        }
+
+        private func addLiveDot(at pos: SIMD3<Float>, color: UIColor) {
+            guard let arView else { return }
+            let a = AnchorEntity(world: pos)
+            let dot = ModelEntity(
+                mesh: MeshResource.generatePlane(width: 0.05, depth: 0.05, cornerRadius: 0.025),
+                materials: [UnlitMaterial(color: color)])
+            dot.position.y = 0.004
+            a.addChild(dot)
+            arView.scene.addAnchor(a)
+            liveAnchors.append(a)
+        }
+
+        private func drawLiveLine(from s: SIMD3<Float>, to e: SIMD3<Float>, color: UIColor) {
+            guard let arView else { return }
+            let y = (s.y + e.y) / 2 + 0.004
+            let a3 = SIMD3<Float>(s.x, y, s.z)
+            let b3 = SIMD3<Float>(e.x, y, e.z)
+            let len = simd_distance(a3, b3)
+            guard len > 0.02 else { return }
+            let dir = simd_normalize(b3 - a3)
+            let mid = (a3 + b3) / 2
+            let angle = atan2(dir.x, dir.z)
+
+            let anchor = AnchorEntity(world: mid)
+            let line = ModelEntity(
+                mesh: MeshResource.generateBox(width: len, height: 0.003, depth: 0.01),
+                materials: [UnlitMaterial(color: color)])
+            line.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
+            anchor.addChild(line)
+
+            // 거리 라벨
+            let distText = len >= 1.0 ? String(format: "%.2fm", len) : String(format: "%.0fcm", len*100)
+            let bg = ModelEntity(
+                mesh: MeshResource.generatePlane(width: 0.16, depth: 0.05, cornerRadius: 0.015),
+                materials: [UnlitMaterial(color: UIColor.black.withAlphaComponent(0.7))])
+            bg.position.y = 0.03
+            bg.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
+            anchor.addChild(bg)
+            let txt = ModelEntity(
+                mesh: MeshResource.generateText(distText, extrusionDepth: 0.002,
+                    font: .systemFont(ofSize: 0.04, weight: .bold),
+                    containerFrame: .zero, alignment: .center, lineBreakMode: .byWordWrapping),
+                materials: [UnlitMaterial(color: .white)])
+            txt.position = SIMD3(-0.045, 0.032, 0.003)
+            anchor.addChild(txt)
+
+            arView.scene.addAnchor(anchor)
+            liveAnchors.append(anchor)
+        }
+
         // MARK: - ★ 초기화: 모든 AR 마커 제거
 
         func clearAll() {
             guard let arView else { return }
+            clearLive()
             // 모든 앵커 제거
             for a in allAnchors { arView.scene.removeAnchor(a) }
             for (_, a) in pointAnchors { arView.scene.removeAnchor(a) }
