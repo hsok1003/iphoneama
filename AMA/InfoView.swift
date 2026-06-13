@@ -78,40 +78,47 @@ struct InfoView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("거리 보정")
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("AR 측정이 실제보다 길거나 짧게 나올 때 조정하세요. 줄자로 잰 실제 거리와 앱 표시값을 비교해 맞춥니다.")
+            VStack(alignment: .leading, spacing: 14) {
+                Text("AR 측정이 실제와 다를 때 조정하세요. 줄자로 잰 실제 거리 ÷ 앱 표시값 = 보정값. 가로·세로를 따로 맞출 수 있습니다.")
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
 
+                // 가로 보정
                 HStack {
-                    Text("보정 계수")
+                    Text("가로 보정")
                         .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.orange)
                     Spacer()
-                    Text(String(format: "%.2f", manager.calibration))
+                    Text(String(format: "%.2f", manager.calibrationW))
                         .font(.system(size: 15, weight: .bold, design: .monospaced))
-                        .foregroundColor(.blue)
+                        .foregroundColor(.orange)
                 }
+                Slider(value: $manager.calibrationW, in: 0.80...1.20, step: 0.01)
+                    .tint(.orange)
 
-                Slider(value: $manager.calibration, in: 0.80...1.05, step: 0.01)
-                    .tint(.blue)
-
+                // 세로 보정
                 HStack {
-                    Text("0.80 (더 짧게)")
+                    Text("세로 보정")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.cyan)
                     Spacer()
-                    Text("1.05 (더 길게)")
+                    Text(String(format: "%.2f", manager.calibrationD))
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundColor(.cyan)
                 }
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+                Slider(value: $manager.calibrationD, in: 0.80...1.20, step: 0.01)
+                    .tint(.cyan)
 
-                Text("예: 실제 4.0m인데 앱이 4.4m로 나오면 → 4.0 ÷ 4.4 = 0.91로 설정")
+                Text("예: 가로 실제 3.9m인데 앱이 3.7m면 → 3.9 ÷ 3.7 = 1.05를 현재 가로 보정값(0.96)에 곱해 설정")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .padding(.top, 4)
 
                 Button {
-                    manager.calibration = 0.91
+                    manager.calibrationW = 0.96
+                    manager.calibrationD = 1.00
                 } label: {
-                    Text("기본값(0.91)으로 초기화")
+                    Text("기본값으로 초기화")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.blue)
                 }
