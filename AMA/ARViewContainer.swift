@@ -140,14 +140,14 @@ struct ARViewContainer: UIViewRepresentable {
             let y = rect.floorY
             let corners = rect.corners
 
-            // 1) 바닥 경계선 (보라색, 선명)
-            let purple = UIColor(red: 0.5, green: 0.35, blue: 1.0, alpha: 1.0)
+            // 1) 바닥 경계선 (보라색, 얇게 — 선 중심이 정확한 측정 기준선)
+            let purple = UIColor(red: 0.55, green: 0.4, blue: 1.0, alpha: 1.0)
             for i in 0..<4 {
                 let s = SIMD3<Float>(corners[i].x, y + 0.005, corners[i].z)
                 let e = SIMD3<Float>(corners[(i+1)%4].x, y + 0.005, corners[(i+1)%4].z)
                 let d = simd_normalize(e - s)
                 let len = simd_distance(s, e)
-                addBoxUnlit(at: (s + e) / 2, w: len, h: 0.004, d: 0.015,
+                addBoxUnlit(at: (s + e) / 2, w: len, h: 0.003, d: 0.005,
                             color: purple, angle: atan2(-d.z, d.x))
             }
 
@@ -178,26 +178,26 @@ struct ARViewContainer: UIViewRepresentable {
                 let isCenter = p.id == 3
                 let base: UIColor = isCenter ? .systemRed : .systemOrange
 
-                // ★ 작은 X자 (정확한 지점 표시) — 대각선 2개
+                // ★ 작은 X자 (정확한 지점 표시) — 대각선 2개, 얇고 작게
                 let arm1 = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.08, height: 0.003, depth: 0.008),
+                    mesh: MeshResource.generateBox(width: 0.05, height: 0.003, depth: 0.005),
                     materials: [UnlitMaterial(color: base)])
                 arm1.position.y = 0.004
                 arm1.orientation = simd_quatf(angle: .pi / 4, axis: SIMD3(0, 1, 0))
                 a.addChild(arm1)
 
                 let arm2 = ModelEntity(
-                    mesh: MeshResource.generateBox(width: 0.08, height: 0.003, depth: 0.008),
+                    mesh: MeshResource.generateBox(width: 0.05, height: 0.003, depth: 0.005),
                     materials: [UnlitMaterial(color: base)])
                 arm2.position.y = 0.004
                 arm2.orientation = simd_quatf(angle: -.pi / 4, axis: SIMD3(0, 1, 0))
                 a.addChild(arm2)
 
-                // 정중앙 아주 작은 점 (마킹 지점)
+                // 정중앙 정밀 점 (실제 마킹 지점)
                 let centerDot = ModelEntity(
-                    mesh: MeshResource.generatePlane(width: 0.012, depth: 0.012, cornerRadius: 0.006),
-                    materials: [UnlitMaterial(color: base)])
-                centerDot.position.y = 0.005
+                    mesh: MeshResource.generatePlane(width: 0.01, depth: 0.01, cornerRadius: 0.005),
+                    materials: [UnlitMaterial(color: .white)])
+                centerDot.position.y = 0.006
                 a.addChild(centerDot)
                 markerEntities[p.id] = centerDot
 
@@ -326,7 +326,7 @@ struct ARViewContainer: UIViewRepresentable {
 
             let anchor = AnchorEntity(world: mid)
             let line = ModelEntity(
-                mesh: MeshResource.generateBox(width: len, height: 0.003, depth: 0.01),
+                mesh: MeshResource.generateBox(width: len, height: 0.003, depth: 0.006),
                 materials: [UnlitMaterial(color: color)])
             line.orientation = simd_quatf(angle: angle, axis: SIMD3(0, 1, 0))
             anchor.addChild(line)
